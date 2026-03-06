@@ -14,6 +14,7 @@ class TextInjector {
         )
 
         guard result == .success, let element = focusedElement else {
+            print("[TextInjector] No focused element (AX error: \(result.rawValue)), falling back to keyboard")
             injectViaKeyboard(text)
             return
         }
@@ -27,7 +28,10 @@ class TextInjector {
             text as CFString
         )
 
-        if setResult != .success {
+        if setResult == .success {
+            print("[TextInjector] Injected via AXUIElement")
+        } else {
+            print("[TextInjector] AX set failed (error: \(setResult.rawValue)), falling back to keyboard")
             injectViaKeyboard(text)
         }
     }

@@ -11,6 +11,9 @@ struct FreeWisprApp: App {
         } label: {
             Image(systemName: appState.isRecording ? "mic.fill" :
                     appState.isTranscribing ? "text.bubble" : "mic")
+                .task {
+                    await appState.setup()
+                }
         }
         .menuBarExtraStyle(.window)
     }
@@ -72,8 +75,7 @@ struct MenuBarView: View {
         }
         .padding(12)
         .frame(width: 280)
-        .task {
-            await appState.setup()
+        .onAppear {
             hasAppeared = true
         }
     }
