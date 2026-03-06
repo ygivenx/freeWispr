@@ -38,7 +38,7 @@ struct MenuBarView: View {
             HStack {
                 Text("Hotkey:")
                 Spacer()
-                Text("⌥ Space")
+                Text("🌐 Globe or ⌃⌥")
                     .foregroundColor(.secondary)
             }
 

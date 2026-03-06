@@ -3,16 +3,9 @@ import Foundation
 
 class AudioRecorder: ObservableObject {
     @Published var isRecording = false
-    @Published var audioLevel: Float = 0
 
     private let audioEngine = AVAudioEngine()
     private var audioBuffer: [Float] = []
-
-    var silenceThreshold: Float = 0.03
-    var silenceTimeout: TimeInterval = 1.5
-    var maxRecordingDuration: TimeInterval = 30
-    private var lastSpeechTime = Date()
-    private var recordingStartTime = Date()
 
     var onRecordingComplete: (([Float]) -> Void)?
 
@@ -28,8 +21,6 @@ class AudioRecorder: ObservableObject {
     func startRecording() throws {
         audioBuffer.removeAll()
         isRecording = true
-        lastSpeechTime = Date()
-        recordingStartTime = Date()
 
         let inputNode = audioEngine.inputNode
         let hardwareFormat = inputNode.outputFormat(forBus: 0)
@@ -57,23 +48,9 @@ class AudioRecorder: ObservableObject {
             guard error == nil, let channelData = converted.floatChannelData else { return }
 
             let samples = Array(UnsafeBufferPointer(start: channelData[0], count: Int(converted.frameLength)))
-            let rms = Self.calculateRMS(samples)
 
             DispatchQueue.main.async {
                 self.audioBuffer.append(contentsOf: samples)
-                self.audioLevel = rms
-
-                let now = Date()
-                if rms > self.silenceThreshold {
-                    self.lastSpeechTime = now
-                }
-
-                let silenceExceeded = now.timeIntervalSince(self.lastSpeechTime) > self.silenceTimeout
-                let maxDurationExceeded = now.timeIntervalSince(self.recordingStartTime) > self.maxRecordingDuration
-
-                if silenceExceeded || maxDurationExceeded {
-                    self.stopRecording()
-                }
             }
         }
 
@@ -91,11 +68,5 @@ class AudioRecorder: ObservableObject {
         let finalBuffer = audioBuffer
         audioBuffer.removeAll()
         onRecordingComplete?(finalBuffer)
-    }
-
-    static func calculateRMS(_ samples: [Float]) -> Float {
-        guard !samples.isEmpty else { return 0 }
-        let sumOfSquares = samples.reduce(0) { $0 + $1 * $1 }
-        return sqrt(sumOfSquares / Float(samples.count))
     }
 }

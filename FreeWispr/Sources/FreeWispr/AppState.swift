@@ -40,10 +40,15 @@ class AppState: ObservableObject {
             return
         }
 
-        // Set up hotkey
+        // Set up push-to-talk: hold to record, release to transcribe
         hotkeyManager.onHotkeyDown = { [weak self] in
             Task { @MainActor in
-                self?.toggleRecording()
+                self?.startRecording()
+            }
+        }
+        hotkeyManager.onHotkeyUp = { [weak self] in
+            Task { @MainActor in
+                self?.stopAndTranscribe()
             }
         }
         _ = hotkeyManager.start()
@@ -56,18 +61,20 @@ class AppState: ObservableObject {
         }
     }
 
-    func toggleRecording() {
-        if isRecording {
-            audioRecorder.stopRecording()
-        } else {
-            do {
-                try audioRecorder.startRecording()
-                isRecording = true
-                statusMessage = "Listening..."
-            } catch {
-                statusMessage = "Mic error: \(error.localizedDescription)"
-            }
+    func startRecording() {
+        guard !isRecording else { return }
+        do {
+            try audioRecorder.startRecording()
+            isRecording = true
+            statusMessage = "Listening..."
+        } catch {
+            statusMessage = "Mic error: \(error.localizedDescription)"
         }
+    }
+
+    func stopAndTranscribe() {
+        guard isRecording else { return }
+        audioRecorder.stopRecording()
     }
 
     private func transcribeAndInject(_ samples: [Float]) async {

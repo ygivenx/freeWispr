@@ -7,9 +7,7 @@ class HotkeyManager: ObservableObject {
 
     var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-
-    var hotkeyKeyCode: CGKeyCode = 49  // Space
-    var hotkeyModifiers: CGEventFlags = .maskAlternate  // Option
+    var isHotkeyHeld = false
 
     var onHotkeyDown: (() -> Void)?
     var onHotkeyUp: (() -> Void)?
@@ -21,13 +19,12 @@ class HotkeyManager: ObservableObject {
 
     func start() -> Bool {
         let eventMask: CGEventMask =
-            (1 << CGEventType.keyDown.rawValue) |
-            (1 << CGEventType.keyUp.rawValue)
+            (1 << CGEventType.flagsChanged.rawValue)
 
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
-            options: .defaultTap,
+            options: .listenOnly,
             eventsOfInterest: eventMask,
             callback: hotkeyCallback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
@@ -74,22 +71,24 @@ private func hotkeyCallback(
         return Unmanaged.passUnretained(event)
     }
 
-    guard let userInfo = userInfo else {
+    guard let userInfo = userInfo, type == .flagsChanged else {
         return Unmanaged.passUnretained(event)
     }
 
     let manager = Unmanaged<HotkeyManager>.fromOpaque(userInfo).takeUnretainedValue()
-    let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
     let flags = event.flags
 
-    if keyCode == manager.hotkeyKeyCode && flags.contains(manager.hotkeyModifiers) {
-        if type == .keyDown {
-            DispatchQueue.main.async { manager.onHotkeyDown?() }
-            return nil
-        } else if type == .keyUp {
-            DispatchQueue.main.async { manager.onHotkeyUp?() }
-            return nil
-        }
+    // Globe key (fn) or Ctrl+Option held together
+    let globePressed = flags.contains(.maskSecondaryFn)
+    let ctrlOptionPressed = flags.contains(.maskControl) && flags.contains(.maskAlternate)
+    let hotkeyActive = globePressed || ctrlOptionPressed
+
+    if hotkeyActive && !manager.isHotkeyHeld {
+        manager.isHotkeyHeld = true
+        DispatchQueue.main.async { manager.onHotkeyDown?() }
+    } else if !hotkeyActive && manager.isHotkeyHeld {
+        manager.isHotkeyHeld = false
+        DispatchQueue.main.async { manager.onHotkeyUp?() }
     }
 
     return Unmanaged.passUnretained(event)
