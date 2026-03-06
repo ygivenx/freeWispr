@@ -4,51 +4,37 @@ import ApplicationServices
 class TextInjector {
 
     func injectText(_ text: String) {
-        let systemWide = AXUIElementCreateSystemWide()
+        // Use clipboard paste — works universally (terminals, editors, web apps)
+        let pasteboard = NSPasteboard.general
+        let previousContents = pasteboard.string(forType: .string)
 
-        var focusedElement: AnyObject?
-        let result = AXUIElementCopyAttributeValue(
-            systemWide,
-            kAXFocusedUIElementAttribute as CFString,
-            &focusedElement
-        )
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
 
-        guard result == .success, let element = focusedElement else {
-            print("[TextInjector] No focused element (AX error: \(result.rawValue)), falling back to keyboard")
-            injectViaKeyboard(text)
+        // Simulate Cmd+V
+        let source = CGEventSource(stateID: .hidSystemState)
+        let vKeyCode: CGKeyCode = 9
+
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false) else {
+            print("[TextInjector] Failed to create CGEvent for paste")
             return
         }
 
-        let axElement = element as! AXUIElement
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
 
-        // Try inserting at cursor via selected text attribute
-        let setResult = AXUIElementSetAttributeValue(
-            axElement,
-            kAXSelectedTextAttribute as CFString,
-            text as CFString
-        )
+        keyDown.post(tap: .cgAnnotatedSessionEventTap)
+        keyUp.post(tap: .cgAnnotatedSessionEventTap)
 
-        if setResult == .success {
-            print("[TextInjector] Injected via AXUIElement")
-        } else {
-            print("[TextInjector] AX set failed (error: \(setResult.rawValue)), falling back to keyboard")
-            injectViaKeyboard(text)
-        }
-    }
+        print("[TextInjector] Injected via clipboard paste")
 
-    private func injectViaKeyboard(_ text: String) {
-        let source = CGEventSource(stateID: .hidSystemState)
-
-        for character in text {
-            let utf16 = Array(String(character).utf16)
-            guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
-                  let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else {
-                continue
+        // Restore previous clipboard after a short delay
+        if let previous = previousContents {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                pasteboard.clearContents()
+                pasteboard.setString(previous, forType: .string)
             }
-            keyDown.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
-            keyUp.keyboardSetUnicodeString(stringLength: utf16.count, unicodeString: utf16)
-            keyDown.post(tap: .cgAnnotatedSessionEventTap)
-            keyUp.post(tap: .cgAnnotatedSessionEventTap)
         }
     }
 }
