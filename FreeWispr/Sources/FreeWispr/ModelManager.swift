@@ -60,24 +60,13 @@ class ModelManager: ObservableObject {
         defer { isDownloading = false }
 
         let url = downloadURL(for: model)
-        let (asyncBytes, response) = try await URLSession.shared.bytes(from: url)
-
-        let totalBytes = response.expectedContentLength
-        var data = Data()
-        if totalBytes > 0 {
-            data.reserveCapacity(Int(totalBytes))
-        }
-
-        var bytesReceived: Int64 = 0
-        for try await byte in asyncBytes {
-            data.append(byte)
-            bytesReceived += 1
-            if totalBytes > 0 && bytesReceived % 1_000_000 == 0 {
-                downloadProgress = Double(bytesReceived) / Double(totalBytes)
+        let delegate = DownloadProgressDelegate { [weak self] progress in
+            Task { @MainActor in
+                self?.downloadProgress = progress
             }
         }
-
-        try data.write(to: destination)
+        let (tempURL, _) = try await URLSession.shared.download(from: url, delegate: delegate)
+        try FileManager.default.moveItem(at: tempURL, to: destination)
         downloadProgress = 1.0
     }
 
@@ -86,5 +75,48 @@ class ModelManager: ObservableObject {
         if FileManager.default.fileExists(atPath: path.path) {
             try FileManager.default.removeItem(at: path)
         }
+    }
+}
+
+private class DownloadProgressDelegate: NSObject, URLSessionTaskDelegate {
+    let onProgress: (Double) -> Void
+
+    init(onProgress: @escaping (Double) -> Void) {
+        self.onProgress = onProgress
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        didCreateTask task: URLSessionTask
+    ) {
+        task.delegate = self
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64,
+        totalBytesExpectedToSend: Int64
+    ) {}
+}
+
+extension DownloadProgressDelegate: URLSessionDownloadDelegate {
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {}
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        onProgress(progress)
     }
 }
