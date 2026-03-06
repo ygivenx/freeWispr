@@ -27,4 +27,19 @@ final class ModelManagerTests: XCTestCase {
             XCTAssertTrue(url.absoluteString.contains("ggml-\(size.rawValue).bin"))
         }
     }
+
+    func testCoreMLURLGeneration() {
+        let manager = ModelManager()
+        let url = manager.coreMLDownloadURL(for: .base)
+        XCTAssertEqual(
+            url.absoluteString,
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-encoder.mlmodelc.zip"
+        )
+    }
+
+    func testCoreMLLocalPath() {
+        let manager = ModelManager()
+        let path = manager.localCoreMLPath(for: .base)
+        XCTAssertTrue(path.path.hasSuffix("ggml-base-encoder.mlmodelc"))
+    }
 }
