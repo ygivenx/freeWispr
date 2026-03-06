@@ -13,7 +13,14 @@ class WhisperTranscriber: ObservableObject {
     private var whisper: Whisper?
 
     func loadModel(at path: URL) throws {
-        whisper = Whisper(fromFileURL: path)
+        let params = WhisperParams(strategy: .greedy)
+        params.language = .english       // Skip auto-detection
+        params.print_progress = false    // Silence progress spam
+        params.print_realtime = false
+        params.print_timestamps = false
+        params.single_segment = true     // Treat as one segment — faster
+
+        whisper = Whisper(fromFileURL: path, withParams: params)
         isModelLoaded = true
     }
 
