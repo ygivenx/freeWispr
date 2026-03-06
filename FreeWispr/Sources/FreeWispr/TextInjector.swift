@@ -17,7 +17,6 @@ class TextInjector {
 
         guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: true),
               let keyUp = CGEvent(keyboardEventSource: source, virtualKey: vKeyCode, keyDown: false) else {
-            print("[TextInjector] Failed to create CGEvent for paste")
             return
         }
 
@@ -26,8 +25,6 @@ class TextInjector {
 
         keyDown.post(tap: .cgAnnotatedSessionEventTap)
         keyUp.post(tap: .cgAnnotatedSessionEventTap)
-
-        print("[TextInjector] Injected via clipboard paste")
 
         // Restore previous clipboard after a short delay
         if let previous = previousContents {

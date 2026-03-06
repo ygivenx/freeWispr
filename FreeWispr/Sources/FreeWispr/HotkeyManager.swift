@@ -83,15 +83,11 @@ private func hotkeyCallback(
     let ctrlOptionPressed = flags.contains(.maskControl) && flags.contains(.maskAlternate)
     let hotkeyActive = globePressed || ctrlOptionPressed
 
-    print("[Hotkey] flags=\(flags.rawValue) globe=\(globePressed) ctrlOpt=\(ctrlOptionPressed) held=\(manager.isHotkeyHeld)")
-
     if hotkeyActive && !manager.isHotkeyHeld {
         manager.isHotkeyHeld = true
-        print("[Hotkey] >>> KEY DOWN - start recording")
         DispatchQueue.main.async { manager.onHotkeyDown?() }
     } else if !hotkeyActive && manager.isHotkeyHeld {
         manager.isHotkeyHeld = false
-        print("[Hotkey] >>> KEY UP - stop recording")
         DispatchQueue.main.async { manager.onHotkeyUp?() }
     }
 

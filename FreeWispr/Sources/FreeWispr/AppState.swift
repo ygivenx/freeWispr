@@ -71,26 +71,21 @@ class AppState: ObservableObject {
             try audioRecorder.startRecording()
             isRecording = true
             statusMessage = "Listening..."
-            print("[Pipeline] Recording started")
-        } catch {
+            } catch {
             statusMessage = "Mic error: \(error.localizedDescription)"
-            print("[Pipeline] Mic error: \(error)")
+
         }
     }
 
     func stopAndTranscribe() {
         guard isRecording else { return }
-        print("[Pipeline] Stopping recording...")
+
         audioRecorder.stopRecording()
     }
 
     private func transcribeAndInject(_ samples: [Float]) async {
         isRecording = false
-        let durationSec = Double(samples.count) / 16000.0
-        print("[Pipeline] Got \(samples.count) samples (\(String(format: "%.1f", durationSec))s audio)")
-
         guard !samples.isEmpty else {
-            print("[Pipeline] Empty samples, skipping")
             statusMessage = "Ready"
             return
         }
@@ -100,17 +95,12 @@ class AppState: ObservableObject {
 
         do {
             let text = try await transcriber.transcribe(audioSamples: samples)
-            print("[Pipeline] Transcription result: '\(text)'")
             if !text.isEmpty {
-                print("[Pipeline] Injecting text into focused app...")
                 textInjector.injectText(text)
-                print("[Pipeline] Text injection done")
-            } else {
-                print("[Pipeline] Empty transcription result")
             }
             statusMessage = "Ready"
         } catch {
-            print("[Pipeline] Transcription error: \(error)")
+
             statusMessage = "Transcription failed"
         }
 

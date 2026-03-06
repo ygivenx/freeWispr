@@ -68,7 +68,6 @@ class ModelManager: ObservableObject {
         if !isModelDownloaded(model) {
             isDownloading = true
             downloadProgress = 0
-            print("[ModelManager] Downloading GGML model: \(model.rawValue)")
 
             let delegate = DownloadProgressDelegate { [weak self] progress in
                 Task { @MainActor in
@@ -81,7 +80,6 @@ class ModelManager: ObservableObject {
 
         // Download Core ML encoder
         if !isCoreMLDownloaded(model) {
-            print("[ModelManager] Downloading Core ML encoder: \(model.rawValue)")
             isDownloading = true
 
             let delegate = DownloadProgressDelegate { [weak self] progress in
@@ -100,9 +98,7 @@ class ModelManager: ObservableObject {
             process.waitUntilExit()
 
             if process.terminationStatus != 0 {
-                print("[ModelManager] Warning: unzip failed for Core ML model")
             } else {
-                print("[ModelManager] Core ML encoder extracted to \(localCoreMLPath(for: model).path)")
             }
 
             try? FileManager.default.removeItem(at: tempZip)
