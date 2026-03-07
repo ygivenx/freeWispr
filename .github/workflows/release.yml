@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release binary
+        run: |
+          cd FreeWispr
+          swift build -c release --arch arm64
+
+      - name: Assemble .app bundle
+        run: |
+          APP_NAME="FreeWispr"
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          BUILD_DIR="build"
+          APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
+
+          mkdir -p "$APP_BUNDLE/Contents/MacOS"
+          mkdir -p "$APP_BUNDLE/Contents/Resources"
+
+          cp "FreeWispr/.build/arm64-apple-macosx/release/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+          cp "FreeWispr/Sources/$APP_NAME/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+          cp "FreeWispr/Sources/$APP_NAME/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/"
+          cp -R "FreeWispr/.build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle" "$APP_BUNDLE/Contents/Resources/"
+
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_BUNDLE/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP_BUNDLE/Contents/Info.plist"
+
+      - name: Code sign
+        if: env.SIGNING_IDENTITY != ''
+        env:
+          SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
+        run: |
+          codesign --force --deep \
+            --sign "$SIGNING_IDENTITY" \
+            --options runtime \
+            --entitlements "FreeWispr/FreeWispr.entitlements" \
+            --timestamp \
+            "build/FreeWispr.app"
+
+      - name: Create DMG
+        run: |
+          APP_NAME="FreeWispr"
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          DMG_PATH="build/$APP_NAME-$VERSION.dmg"
+          DMG_STAGING="build/dmg-staging"
+
+          mkdir -p "$DMG_STAGING"
+          cp -R "build/$APP_NAME.app" "$DMG_STAGING/"
+          ln -s /Applications "$DMG_STAGING/Applications"
+
+          hdiutil create \
+            -volname "$APP_NAME" \
+            -srcfolder "$DMG_STAGING" \
+            -ov \
+            -format UDZO \
+            "$DMG_PATH"
+
+          rm -rf "$DMG_STAGING"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          gh release create "$GITHUB_REF_NAME" \
+            "build/FreeWispr-$VERSION.dmg" \
+            --title "FreeWispr v$VERSION" \
+            --generate-notes

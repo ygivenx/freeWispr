@@ -1,16 +1,50 @@
+import AppKit
 import SwiftUI
+
+struct MenuBarIcon: View {
+    let isRecording: Bool
+    let isTranscribing: Bool
+
+    private var menuBarImage: NSImage? {
+        guard let url = Bundle.module.url(forResource: "MenuBarIcon", withExtension: "png", subdirectory: "Resources"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        image.size = NSSize(width: 18, height: 18)
+        image.isTemplate = true
+        return image
+    }
+
+    var body: some View {
+        if let nsImage = menuBarImage {
+            Image(nsImage: nsImage)
+                .opacity(isRecording ? 0.5 : 1.0)
+        } else {
+            Image(systemName: isRecording ? "mic.fill" :
+                    isTranscribing ? "text.bubble" : "mic")
+        }
+    }
+}
 
 @main
 struct FreeWisprApp: App {
     @StateObject private var appState = AppState()
+
+    init() {
+        let runningApps = NSWorkspace.shared.runningApplications.filter {
+            $0.bundleIdentifier == Bundle.main.bundleIdentifier
+        }
+        if runningApps.count > 1 {
+            // Another instance is already running — activate it and quit this one
+            runningApps.first { $0 != NSRunningApplication.current }?.activate()
+            NSApp.terminate(nil)
+        }
+    }
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarView()
                 .environmentObject(appState)
         } label: {
-            Image(systemName: appState.isRecording ? "mic.fill" :
-                    appState.isTranscribing ? "text.bubble" : "mic")
+            MenuBarIcon(isRecording: appState.isRecording, isTranscribing: appState.isTranscribing)
                 .task {
                     await appState.setup()
                 }

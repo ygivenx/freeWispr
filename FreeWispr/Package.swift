@@ -12,7 +12,8 @@ let package = Package(
             name: "FreeWispr",
             dependencies: ["SwiftWhisper"],
             path: "Sources/FreeWispr",
-            exclude: ["Info.plist"]
+            exclude: ["Info.plist"],
+            resources: [.copy("Resources")]
         ),
         .testTarget(
             name: "FreeWisprTests",
