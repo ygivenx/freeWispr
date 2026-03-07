@@ -15,6 +15,49 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Install signing certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
+        run: |
+          # Create a temporary keychain
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          echo "$CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+          security import "$CERT_PATH" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+
+          # Add keychain to search list
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Store identity name for later steps
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Set up notarization credentials
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
+        run: |
+          xcrun notarytool store-credentials "FreeWispr-notarize" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APP_SPECIFIC_PASSWORD"
+
       - name: Build release binary
         run: |
           cd FreeWispr
@@ -33,15 +76,12 @@ jobs:
           cp "FreeWispr/.build/arm64-apple-macosx/release/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
           cp "FreeWispr/Sources/$APP_NAME/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
           cp "FreeWispr/Sources/$APP_NAME/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/"
-          cp -R "FreeWispr/.build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle" "$APP_BUNDLE/Contents/Resources/"
+          cp -R "FreeWispr/.build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle" "$APP_BUNDLE/"
 
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_BUNDLE/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP_BUNDLE/Contents/Info.plist"
 
       - name: Code sign
-        if: env.SIGNING_IDENTITY != ''
-        env:
-          SIGNING_IDENTITY: ${{ secrets.SIGNING_IDENTITY }}
         run: |
           codesign --force --deep \
             --sign "$SIGNING_IDENTITY" \
@@ -49,6 +89,20 @@ jobs:
             --entitlements "FreeWispr/FreeWispr.entitlements" \
             --timestamp \
             "build/FreeWispr.app"
+
+      - name: Notarize
+        run: |
+          # Zip for notarization
+          ditto -c -k --keepParent "build/FreeWispr.app" "build/FreeWispr-notarize.zip"
+
+          xcrun notarytool submit "build/FreeWispr-notarize.zip" \
+            --keychain-profile "FreeWispr-notarize" \
+            --wait
+
+          rm -f "build/FreeWispr-notarize.zip"
+
+          # Staple the ticket
+          xcrun stapler staple "build/FreeWispr.app"
 
       - name: Create DMG
         run: |
@@ -70,6 +124,9 @@ jobs:
 
           rm -rf "$DMG_STAGING"
 
+          # Sign the DMG too
+          codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH"
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -79,3 +136,9 @@ jobs:
             "build/FreeWispr-$VERSION.dmg" \
             --title "FreeWispr v$VERSION" \
             --generate-notes
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true

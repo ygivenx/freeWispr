@@ -48,7 +48,7 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$BUILT_BINARY" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 cp "$INFO_PLIST" "$APP_BUNDLE/Contents/Info.plist"
 cp "$PROJECT_DIR/Sources/$APP_NAME/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/"
-cp -R "$PROJECT_DIR/.build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle" "$APP_BUNDLE/Contents/Resources/"
+cp -R "$PROJECT_DIR/.build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle" "$APP_BUNDLE/"
 
 # Stamp version into the bundle plist
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_BUNDLE/Contents/Info.plist"
