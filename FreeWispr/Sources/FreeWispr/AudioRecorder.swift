@@ -7,7 +7,7 @@ class AudioRecorder: ObservableObject {
     private let audioEngine = AVAudioEngine()
     private var audioBuffer: [Float] = []
     private let bufferQueue = DispatchQueue(label: "com.ygivenx.FreeWispr.audioBuffer")
-    private var isEngineRunning = false
+    private var isTapInstalled = false
 
     var onRecordingComplete: (([Float]) -> Void)?
 
@@ -20,9 +20,10 @@ class AudioRecorder: ObservableObject {
         )!
     }()
 
-    /// Start the audio engine once and keep it warm. Call this during app setup.
+    /// Install the audio tap once during setup. This avoids recreating
+    /// AudioConverters and triggering TCC permission checks on every recording.
     func prepareEngine() throws {
-        guard !isEngineRunning else { return }
+        guard !isTapInstalled else { return }
 
         let inputNode = audioEngine.inputNode
         let hardwareFormat = inputNode.outputFormat(forBus: 0)
@@ -57,23 +58,24 @@ class AudioRecorder: ObservableObject {
         }
 
         audioEngine.prepare()
-        try audioEngine.start()
-        isEngineRunning = true
+        isTapInstalled = true
     }
 
     func startRecording() throws {
-        if !isEngineRunning {
+        if !isTapInstalled {
             try prepareEngine()
         }
         bufferQueue.sync {
             audioBuffer.removeAll(keepingCapacity: true)
         }
+        try audioEngine.start()
         isRecording = true
     }
 
     func stopRecording() {
         guard isRecording else { return }
         isRecording = false
+        audioEngine.stop()
 
         let finalBuffer = bufferQueue.sync { () -> [Float] in
             let copy = audioBuffer

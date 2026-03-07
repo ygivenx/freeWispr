@@ -39,6 +39,7 @@
 
 **[Download the latest release](https://github.com/ygivenx/freeWispr/releases/latest)** — grab the `.dmg`, drag to Applications, done.
 
+> Signed with Apple Developer ID and notarized by Apple — no Gatekeeper warnings.
 > Requires macOS 14+ on Apple Silicon or Intel.
 
 <!--

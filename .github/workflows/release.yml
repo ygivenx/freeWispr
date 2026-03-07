@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   build-and-release:
@@ -129,6 +131,11 @@ jobs:
 
           # Sign the DMG too
           codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'build/FreeWispr-${{ steps.version.outputs.VERSION }}.dmg'
 
       - name: Create GitHub Release
         env:
