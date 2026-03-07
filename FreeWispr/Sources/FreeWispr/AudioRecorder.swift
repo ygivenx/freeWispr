@@ -6,6 +6,8 @@ class AudioRecorder: ObservableObject {
 
     private let audioEngine = AVAudioEngine()
     private var audioBuffer: [Float] = []
+    private let bufferQueue = DispatchQueue(label: "com.ygivenx.FreeWispr.audioBuffer")
+    private var isEngineRunning = false
 
     var onRecordingComplete: (([Float]) -> Void)?
 
@@ -18,9 +20,9 @@ class AudioRecorder: ObservableObject {
         )!
     }()
 
-    func startRecording() throws {
-        audioBuffer.removeAll()
-        isRecording = true
+    /// Start the audio engine once and keep it warm. Call this during app setup.
+    func prepareEngine() throws {
+        guard !isEngineRunning else { return }
 
         let inputNode = audioEngine.inputNode
         let hardwareFormat = inputNode.outputFormat(forBus: 0)
@@ -49,24 +51,35 @@ class AudioRecorder: ObservableObject {
 
             let samples = Array(UnsafeBufferPointer(start: channelData[0], count: Int(converted.frameLength)))
 
-            DispatchQueue.main.async {
+            self.bufferQueue.async {
                 self.audioBuffer.append(contentsOf: samples)
             }
         }
 
         audioEngine.prepare()
         try audioEngine.start()
+        isEngineRunning = true
+    }
+
+    func startRecording() throws {
+        if !isEngineRunning {
+            try prepareEngine()
+        }
+        bufferQueue.sync {
+            audioBuffer.removeAll(keepingCapacity: true)
+        }
+        isRecording = true
     }
 
     func stopRecording() {
         guard isRecording else { return }
         isRecording = false
 
-        audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
-
-        let finalBuffer = audioBuffer
-        audioBuffer.removeAll()
+        let finalBuffer = bufferQueue.sync { () -> [Float] in
+            let copy = audioBuffer
+            audioBuffer.removeAll(keepingCapacity: true)
+            return copy
+        }
         onRecordingComplete?(finalBuffer)
     }
 }

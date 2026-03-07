@@ -29,13 +29,16 @@ struct FreeWisprApp: App {
     @StateObject private var appState = AppState()
 
     init() {
+        // Prevent duplicate instances (only when running as .app with a bundle ID)
+        guard let bundleID = Bundle.main.bundleIdentifier else { return }
         let runningApps = NSWorkspace.shared.runningApplications.filter {
-            $0.bundleIdentifier == Bundle.main.bundleIdentifier
+            $0.bundleIdentifier == bundleID
         }
         if runningApps.count > 1 {
-            // Another instance is already running — activate it and quit this one
             runningApps.first { $0 != NSRunningApplication.current }?.activate()
-            NSApp.terminate(nil)
+            DispatchQueue.main.async {
+                NSApp?.terminate(nil)
+            }
         }
     }
 

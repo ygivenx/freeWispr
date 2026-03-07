@@ -58,11 +58,17 @@ class AppState: ObservableObject {
         }
         _ = hotkeyManager.start()
 
-        // Set up audio completion handler
+        // Set up audio completion handler and warm up the engine
         audioRecorder.onRecordingComplete = { [weak self] samples in
             Task { @MainActor in
                 await self?.transcribeAndInject(samples)
             }
+        }
+
+        do {
+            try audioRecorder.prepareEngine()
+        } catch {
+            statusMessage = "Mic error: \(error.localizedDescription)"
         }
     }
 

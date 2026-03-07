@@ -26,11 +26,15 @@ class TextInjector {
         keyDown.post(tap: .cgAnnotatedSessionEventTap)
         keyUp.post(tap: .cgAnnotatedSessionEventTap)
 
-        // Restore previous clipboard after a short delay
+        // Restore previous clipboard after paste completes
         if let previous = previousContents {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                pasteboard.clearContents()
-                pasteboard.setString(previous, forType: .string)
+            let changeCount = pasteboard.changeCount
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                // Only restore if nothing else has touched the clipboard
+                if pasteboard.changeCount == changeCount {
+                    pasteboard.clearContents()
+                    pasteboard.setString(previous, forType: .string)
+                }
             }
         }
     }
