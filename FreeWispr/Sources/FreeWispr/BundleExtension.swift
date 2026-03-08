@@ -5,7 +5,7 @@ extension Foundation.Bundle {
     /// SPM's auto-generated Bundle.module uses bundleURL (the .app root), but signed
     /// .app bundles require resources inside Contents/Resources/.
     static let appResources: Bundle = {
-        let bundleName = "FreeWispr_FreeWispr"
+        let bundleName = "FreeWispr_FreeWisprCore"
 
         // Contents/Resources/ — correct location in a signed .app bundle
         if let resourceURL = Bundle.main.resourceURL,

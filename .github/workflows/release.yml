@@ -81,7 +81,7 @@ jobs:
           cp "FreeWispr/.build/arm64-apple-macosx/release/$APP_NAME" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
           cp "FreeWispr/Sources/$APP_NAME/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
           cp "FreeWispr/Sources/$APP_NAME/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/"
-          cp -R "FreeWispr/.build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle" "$APP_BUNDLE/Contents/Resources/"
+          cp -R "FreeWispr/.build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}Core.bundle" "$APP_BUNDLE/Contents/Resources/"
 
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_BUNDLE/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP_BUNDLE/Contents/Info.plist"
