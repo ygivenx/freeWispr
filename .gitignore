@@ -7,3 +7,4 @@ DerivedData/
 build/
 certs/
 *.p12
+.worktrees/
