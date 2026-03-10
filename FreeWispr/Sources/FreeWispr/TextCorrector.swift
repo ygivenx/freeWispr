@@ -4,6 +4,8 @@ import FoundationModels
 
 @available(macOS 26.0, *)
 final class TextCorrector {
+    private var session: LanguageModelSession?
+
     private static let baseInstructions = """
         You are the text correction engine inside FreeWispr, a macOS dictation app. \
         The user held a push-to-talk hotkey, spoke into their microphone, and Whisper \
@@ -48,9 +50,11 @@ final class TextCorrector {
             return text
         }
         do {
-            let instructions = Self.buildInstructions()
-            let session = LanguageModelSession(instructions: instructions)
-            let response = try await session.respond(to: text)
+            if session == nil {
+                let instructions = Self.buildInstructions()
+                session = LanguageModelSession(instructions: instructions)
+            }
+            let response = try await session!.respond(to: text)
             let result = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
 
             if result.isEmpty || Self.looksLikeRefusal(result, originalText: text) {
@@ -58,8 +62,14 @@ final class TextCorrector {
             }
             return result
         } catch {
+            // Reset session on failure so next attempt starts fresh
+            session = nil
             return text
         }
+    }
+
+    func resetSession() {
+        session = nil
     }
 
     private static func looksLikeRefusal(_ result: String, originalText: String) -> Bool {

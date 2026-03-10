@@ -98,7 +98,10 @@ class AudioRecorder: ObservableObject {
 
         let finalBuffer = bufferQueue.sync { () -> [Float] in
             let copy = audioBuffer
-            audioBuffer.removeAll(keepingCapacity: true)
+            // Release capacity if buffer grew beyond 60s of audio (16kHz mono)
+            // to prevent memory from ratcheting up after long recordings.
+            let maxRetainedCapacity = 16000 * 60
+            audioBuffer.removeAll(keepingCapacity: audioBuffer.capacity <= maxRetainedCapacity)
             return copy
         }
         onRecordingComplete?(finalBuffer)
