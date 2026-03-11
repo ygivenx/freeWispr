@@ -50,11 +50,11 @@ final class TextCorrector {
             return text
         }
         do {
-            if session == nil {
-                let instructions = Self.buildInstructions()
-                session = LanguageModelSession(instructions: instructions)
-            }
-            let response = try await session!.respond(to: text)
+            // Rebuild instructions each time to capture the current frontmost app.
+            let instructions = Self.buildInstructions()
+            let currentSession = session ?? LanguageModelSession(instructions: instructions)
+            session = currentSession
+            let response = try await currentSession.respond(to: text)
             let result = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
 
             if result.isEmpty || Self.looksLikeRefusal(result, originalText: text) {

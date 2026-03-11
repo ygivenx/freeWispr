@@ -49,9 +49,15 @@ class WhisperTranscriber: ObservableObject {
 
         // Periodically recreate the whisper context to reclaim accumulated
         // memory from whisper.cpp's internal KV cache and Core ML encoder.
+        // Best-effort: if reload fails, keep using the current context and
+        // return the transcription we already have.
         transcriptionCount += 1
         if transcriptionCount >= refreshInterval, let path = modelPath {
-            try loadModel(at: path)
+            do {
+                try loadModel(at: path)
+            } catch {
+                // Reload failed — continue with existing context.
+            }
         }
 
         return text
