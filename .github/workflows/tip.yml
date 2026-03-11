@@ -123,13 +123,21 @@ jobs:
           SHORT_SHA="$(git rev-parse --short HEAD)"
           BRANCH="${GITHUB_REF_NAME}"
           DATE="$(date -u +%Y-%m-%d)"
+          TAG="tip-${SHORT_SHA}"
 
-          # Delete existing tip release and tag
-          gh release delete tip --yes --cleanup-tag 2>/dev/null || true
+          # Delete previous tip-* releases (keep the tag to avoid ruleset conflicts)
+          gh release list --json tagName,isPrerelease -q '.[] | select(.isPrerelease and (.tagName | startswith("tip-"))) | .tagName' \
+            | while read -r old_tag; do
+                gh release delete "$old_tag" --yes 2>/dev/null || true
+                git push origin :"refs/tags/$old_tag" 2>/dev/null || true
+              done
 
-          gh release create tip \
+          git tag "$TAG"
+          git push origin "$TAG"
+
+          gh release create "$TAG" \
             build/FreeWispr-tip.dmg \
-            --title "FreeWispr tip" \
+            --title "FreeWispr tip (${SHORT_SHA})" \
             --notes "$(cat <<EOF
           Built from \`${SHORT_SHA}\` on branch \`${BRANCH}\` (${DATE}).
 
