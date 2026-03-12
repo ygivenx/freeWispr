@@ -5,6 +5,7 @@ import SwiftUI
 class AppState: ObservableObject {
     @Published var isRecording = false
     @Published var isTranscribing = false
+    @Published var isMicBusy = false
     @Published var isSwitchingModel = false
     @Published var statusMessage = "Ready"
     @Published var selectedModel: ModelSize = .base
@@ -101,6 +102,17 @@ class AppState: ObservableObject {
             try audioRecorder.startRecording()
             isRecording = true
             statusMessage = "Listening..."
+        } catch AudioRecorderError.micInUse {
+            statusMessage = "Mic in use by another app"
+            isMicBusy = true
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                guard let self, self.isMicBusy else { return }
+                self.isMicBusy = false
+                if !self.isRecording && !self.isTranscribing {
+                    self.statusMessage = "Ready"
+                }
+            }
         } catch {
             statusMessage = "Mic busy — close other audio apps and retry"
         }

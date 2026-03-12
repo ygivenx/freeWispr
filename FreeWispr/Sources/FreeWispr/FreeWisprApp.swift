@@ -4,6 +4,7 @@ import SwiftUI
 struct MenuBarIcon: View {
     let isRecording: Bool
     let isTranscribing: Bool
+    let isMicBusy: Bool
 
     private var menuBarImage: NSImage? {
         guard let url = Bundle.appResources.url(forResource: "MenuBarIcon", withExtension: "png", subdirectory: "Resources"),
@@ -16,9 +17,10 @@ struct MenuBarIcon: View {
     var body: some View {
         if let nsImage = menuBarImage {
             Image(nsImage: nsImage)
-                .opacity(isRecording ? 0.5 : 1.0)
+                .opacity(isMicBusy ? 0.3 : isRecording ? 0.5 : 1.0)
         } else {
-            Image(systemName: isRecording ? "mic.fill" :
+            Image(systemName: isMicBusy ? "mic.slash" :
+                    isRecording ? "mic.fill" :
                     isTranscribing ? "text.bubble" : "mic")
         }
     }
@@ -46,7 +48,7 @@ public struct FreeWisprApp: App {
             MenuBarView()
                 .environmentObject(appState)
         } label: {
-            MenuBarIcon(isRecording: appState.isRecording, isTranscribing: appState.isTranscribing)
+            MenuBarIcon(isRecording: appState.isRecording, isTranscribing: appState.isTranscribing, isMicBusy: appState.isMicBusy)
                 .task {
                     await appState.setup()
                 }

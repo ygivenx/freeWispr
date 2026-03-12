@@ -6,6 +6,7 @@ enum TranscriberError: Error {
     case transcriptionFailed(String)
 }
 
+@MainActor
 class WhisperTranscriber: ObservableObject {
     @Published var isModelLoaded = false
     @Published var isTranscribing = false
