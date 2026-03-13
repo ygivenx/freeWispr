@@ -107,11 +107,7 @@ class AppState: ObservableObject {
             isMicBusy = true
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(2))
-                guard let self, self.isMicBusy else { return }
-                self.isMicBusy = false
-                if !self.isRecording && !self.isTranscribing {
-                    self.statusMessage = "Ready"
-                }
+                await self?.resetMicBusyFlagIfNeeded()
             }
         } catch {
             statusMessage = "Mic busy — close other audio apps and retry"
@@ -181,6 +177,14 @@ class AppState: ObservableObject {
             statusMessage = "Ready"
         } catch {
             statusMessage = "Failed to load model: \(error.localizedDescription)"
+        }
+    }
+
+    private func resetMicBusyFlagIfNeeded() {
+        guard isMicBusy else { return }
+        isMicBusy = false
+        if !isRecording && !isTranscribing {
+            statusMessage = "Ready"
         }
     }
 }

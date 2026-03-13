@@ -147,7 +147,7 @@ vmmap --summary $(pgrep FreeWispr)
 
 ## Contributing
 
-Contributions are welcome! Please see the [issue tracker](https://github.com/ygivenx/freeWispr/issues) for open issues, or open a new one to discuss your idea.
+Contributions are welcome! Please see the [issue tracker](https://github.com/ygivenx/freeWispr/issues) for open issues, or open a new one to discuss your idea. For day-to-day expectations (project layout, test commands, PR requirements), read the [Repository Guidelines](AGENTS.md).
 
 ## License
 

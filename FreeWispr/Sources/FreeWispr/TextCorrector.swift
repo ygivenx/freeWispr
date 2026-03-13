@@ -45,6 +45,22 @@ final class TextCorrector {
         "of course",
     ]
 
+    private static let preamblePrefixes = [
+        "here is the corrected text",
+        "here is the polished text",
+        "here's the corrected text",
+        "here's the polished text",
+        "corrected text",
+        "polished text",
+        "correction",
+        "revised text",
+        "here you go",
+        "the corrected text is",
+        "the polished text is",
+        "here is your corrected",
+        "cleaned up text",
+    ]
+
     func correct(_ text: String) async -> String {
         guard isAvailable else {
             return text
@@ -57,10 +73,11 @@ final class TextCorrector {
             let response = try await currentSession.respond(to: text)
             let result = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            if result.isEmpty || Self.looksLikeRefusal(result, originalText: text) {
+            guard let cleaned = Self.sanitizedResponse(result, originalText: text),
+                  !Self.shouldFallbackToOriginal(cleaned, originalText: text) else {
                 return text
             }
-            return result
+            return cleaned
         } catch {
             // Reset session on failure so next attempt starts fresh
             session = nil
@@ -72,10 +89,23 @@ final class TextCorrector {
         session = nil
     }
 
-    private static func looksLikeRefusal(_ result: String, originalText: String) -> Bool {
-        let lower = result.lowercased()
+    private static func sanitizedResponse(_ result: String, originalText: String) -> String? {
+        var trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
 
-        // If the original text itself starts with these phrases, don't flag it
+        trimmed = stripPreamble(from: trimmed)
+
+        if trimmed.first == "\"", trimmed.last == "\"", trimmed.count >= 2 {
+            trimmed.removeFirst()
+            trimmed.removeLast()
+            trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func shouldFallbackToOriginal(_ result: String, originalText: String) -> Bool {
+        let lower = result.lowercased()
         let originalLower = originalText.lowercased()
 
         for prefix in refusalPrefixes {
@@ -84,12 +114,31 @@ final class TextCorrector {
             }
         }
 
-        // Catch responses that are way longer than input (model is explaining instead of correcting)
+        for prefix in preamblePrefixes {
+            if lower.hasPrefix(prefix) {
+                return true
+            }
+        }
+
         if result.count > originalText.count * 3 && result.count > 100 {
             return true
         }
 
         return false
+    }
+
+    private static func stripPreamble(from text: String) -> String {
+        var trimmed = text
+        let lower = trimmed.lowercased()
+        for prefix in preamblePrefixes {
+            if lower.hasPrefix(prefix) {
+                let dropCount = prefix.count
+                trimmed = String(trimmed.dropFirst(dropCount))
+                trimmed = trimmed.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.init(charactersIn: ":-—")))
+                return trimmed
+            }
+        }
+        return trimmed
     }
 
     private static func buildInstructions() -> String {
