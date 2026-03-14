@@ -107,7 +107,7 @@ final class PipelineBenchmark: XCTestCase {
         print()
 
         let transcriber = WhisperTranscriber()
-        try transcriber.loadModel(at: modelPath)
+        try await transcriber.loadModel(at: modelPath)
 
         var correctorAvailable = false
         #if canImport(FoundationModels)

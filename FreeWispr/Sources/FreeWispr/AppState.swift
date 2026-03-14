@@ -20,6 +20,7 @@ class AppState: ObservableObject {
 
     private var isSetUp = false
     private var textCorrector: Any?
+    private var pendingModelSelection: ModelSize?
 
     let hotkeyManager = HotkeyManager()
     let audioRecorder = AudioRecorder()
@@ -51,7 +52,7 @@ class AppState: ObservableObject {
         // Load model
         do {
             let modelPath = modelManager.localModelPath(for: selectedModel)
-            try transcriber.loadModel(at: modelPath)
+            try await transcriber.loadModel(at: modelPath)
             statusMessage = "Ready"
         } catch {
             statusMessage = "Failed to load model: \(error.localizedDescription)"
@@ -153,30 +154,46 @@ class AppState: ObservableObject {
         isTranscribing = false
     }
 
-    func switchModel(to model: ModelSize) async {
-        guard !isSwitchingModel else { return }
+    func switchModel(to targetModel: ModelSize) async {
+        if isSwitchingModel {
+            pendingModelSelection = targetModel
+            return
+        }
+
         isSwitchingModel = true
-        defer { isSwitchingModel = false }
+        let previousModel = selectedModel
+        if previousModel != targetModel {
+            selectedModel = targetModel
+        }
+        defer {
+            isSwitchingModel = false
+            if let pending = pendingModelSelection {
+                pendingModelSelection = nil
+                if pending != selectedModel {
+                    Task { await self.switchModel(to: pending) }
+                }
+            }
+        }
 
         transcriber.unloadModel()
 
-        if !modelManager.isModelDownloaded(model) || !modelManager.isCoreMLDownloaded(model) {
-            statusMessage = "Downloading \(model.displayName)..."
+        if !modelManager.isModelDownloaded(targetModel) || !modelManager.isCoreMLDownloaded(targetModel) {
+            statusMessage = "Downloading \(targetModel.displayName)..."
             do {
-                try await modelManager.downloadModel(model)
+                try await modelManager.downloadModel(targetModel)
             } catch {
                 statusMessage = "Download failed: \(error.localizedDescription)"
-                // Revert UI selection to the model that is still loaded (none now — stay on previous)
+                selectedModel = previousModel
                 return
             }
         }
 
         do {
-            try transcriber.loadModel(at: modelManager.localModelPath(for: model))
-            selectedModel = model   // Commit only after successful load
+            try await transcriber.loadModel(at: modelManager.localModelPath(for: targetModel))
             statusMessage = "Ready"
         } catch {
             statusMessage = "Failed to load model: \(error.localizedDescription)"
+            selectedModel = previousModel
         }
     }
 

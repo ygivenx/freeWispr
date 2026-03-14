@@ -98,7 +98,7 @@ struct MenuBarView: View {
                 Picker("", selection: Binding(
                     get: { appState.selectedModel },
                     set: { newValue in
-                        guard hasAppeared, !appState.isSwitchingModel else { return }
+                        guard hasAppeared else { return }
                         Task { await appState.switchModel(to: newValue) }
                     }
                 )) {
@@ -107,12 +107,6 @@ struct MenuBarView: View {
                     }
                 }
                 .frame(width: 160)
-                .disabled(appState.isSwitchingModel)
-            }
-
-            if appState.modelManager.isDownloading {
-                ProgressView(value: appState.modelManager.downloadProgress)
-                    .progressViewStyle(.linear)
             }
 
             // AI Cleanup (macOS 26+ / Apple Intelligence)

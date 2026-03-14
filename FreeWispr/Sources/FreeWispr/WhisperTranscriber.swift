@@ -16,15 +16,19 @@ class WhisperTranscriber: ObservableObject {
     private var transcriptionCount = 0
     private let refreshInterval = 50
 
-    func loadModel(at path: URL) throws {
-        let params = WhisperParams(strategy: .greedy)
-        params.language = .english       // Skip auto-detection
-        params.print_progress = false    // Silence progress spam
-        params.print_realtime = false
-        params.print_timestamps = false
-        params.single_segment = true     // Treat as one segment — faster
+    func loadModel(at path: URL) async throws {
+        let newContext = await Task.detached(priority: .userInitiated) { () -> Whisper in
+            let params = WhisperParams(strategy: .greedy)
+            params.language = .english       // Skip auto-detection
+            params.print_progress = false    // Silence progress spam
+            params.print_realtime = false
+            params.print_timestamps = false
+            params.single_segment = true     // Treat as one segment — faster
 
-        whisper = Whisper(fromFileURL: path, withParams: params)
+            return Whisper(fromFileURL: path, withParams: params)
+        }.value
+
+        whisper = newContext
         modelPath = path
         isModelLoaded = true
         transcriptionCount = 0
@@ -55,7 +59,7 @@ class WhisperTranscriber: ObservableObject {
         transcriptionCount += 1
         if transcriptionCount >= refreshInterval, let path = modelPath {
             do {
-                try loadModel(at: path)
+                try await loadModel(at: path)
             } catch {
                 // Reload failed — continue with existing context.
             }
