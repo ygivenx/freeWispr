@@ -27,19 +27,30 @@ struct MenuBarIcon: View {
 }
 
 public struct FreeWisprApp: App {
-    @StateObject private var appState = AppState()
+    @StateObject private var appState: AppState
 
     public init() {
+        let state = AppState()
+        _appState = StateObject(wrappedValue: state)
+
+        var shouldRunSetup = true
+
         // Prevent duplicate instances (only when running as .app with a bundle ID)
-        guard let bundleID = Bundle.main.bundleIdentifier else { return }
-        let runningApps = NSWorkspace.shared.runningApplications.filter {
-            $0.bundleIdentifier == bundleID
-        }
-        if runningApps.count > 1 {
-            runningApps.first { $0 != NSRunningApplication.current }?.activate()
-            DispatchQueue.main.async {
-                NSApp?.terminate(nil)
+        if let bundleID = Bundle.main.bundleIdentifier {
+            let runningApps = NSWorkspace.shared.runningApplications.filter {
+                $0.bundleIdentifier == bundleID
             }
+            if runningApps.count > 1 {
+                shouldRunSetup = false
+                runningApps.first { $0 != NSRunningApplication.current }?.activate()
+                DispatchQueue.main.async {
+                    NSApp?.terminate(nil)
+                }
+            }
+        }
+
+        if shouldRunSetup {
+            Task { await state.setup() }
         }
     }
 
@@ -49,9 +60,6 @@ public struct FreeWisprApp: App {
                 .environmentObject(appState)
         } label: {
             MenuBarIcon(isRecording: appState.isRecording, isTranscribing: appState.isTranscribing, isMicBusy: appState.isMicBusy)
-                .task {
-                    await appState.setup()
-                }
         }
         .menuBarExtraStyle(.window)
     }
