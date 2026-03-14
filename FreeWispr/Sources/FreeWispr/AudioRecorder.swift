@@ -132,19 +132,19 @@ class AudioRecorder: ObservableObject {
     /// Tear down the audio tap so the next attempt rebuilds with the current
     /// hardware format.
     private func resetEngine() {
-        isCapturing = false
         audioEngine.stop()
         if isTapInstalled {
             audioEngine.inputNode.removeTap(onBus: 0)
             isTapInstalled = false
         }
+        isCapturing = false
     }
 
     func stopRecording() {
         guard isRecording else { return }
+        audioEngine.stop()
         isCapturing = false
         isRecording = false
-        audioEngine.stop()
 
         let finalBuffer = bufferQueue.sync { () -> [Float] in
             let copy = audioBuffer
