@@ -1,6 +1,7 @@
 import XCTest
 @testable import FreeWisprCore
 
+@MainActor
 final class AudioRecorderTests: XCTestCase {
 
     func testInitialState() {

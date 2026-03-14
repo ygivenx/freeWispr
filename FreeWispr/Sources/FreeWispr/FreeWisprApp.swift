@@ -4,6 +4,7 @@ import SwiftUI
 struct MenuBarIcon: View {
     let isRecording: Bool
     let isTranscribing: Bool
+    let isMicBusy: Bool
 
     private var menuBarImage: NSImage? {
         guard let url = Bundle.appResources.url(forResource: "MenuBarIcon", withExtension: "png", subdirectory: "Resources"),
@@ -16,28 +17,40 @@ struct MenuBarIcon: View {
     var body: some View {
         if let nsImage = menuBarImage {
             Image(nsImage: nsImage)
-                .opacity(isRecording ? 0.5 : 1.0)
+                .opacity(isMicBusy ? 0.3 : isRecording ? 0.5 : 1.0)
         } else {
-            Image(systemName: isRecording ? "mic.fill" :
+            Image(systemName: isMicBusy ? "mic.slash" :
+                    isRecording ? "mic.fill" :
                     isTranscribing ? "text.bubble" : "mic")
         }
     }
 }
 
 public struct FreeWisprApp: App {
-    @StateObject private var appState = AppState()
+    @StateObject private var appState: AppState
 
     public init() {
+        let state = AppState()
+        _appState = StateObject(wrappedValue: state)
+
+        var shouldRunSetup = true
+
         // Prevent duplicate instances (only when running as .app with a bundle ID)
-        guard let bundleID = Bundle.main.bundleIdentifier else { return }
-        let runningApps = NSWorkspace.shared.runningApplications.filter {
-            $0.bundleIdentifier == bundleID
-        }
-        if runningApps.count > 1 {
-            runningApps.first { $0 != NSRunningApplication.current }?.activate()
-            DispatchQueue.main.async {
-                NSApp?.terminate(nil)
+        if let bundleID = Bundle.main.bundleIdentifier {
+            let runningApps = NSWorkspace.shared.runningApplications.filter {
+                $0.bundleIdentifier == bundleID
             }
+            if runningApps.count > 1 {
+                shouldRunSetup = false
+                runningApps.first { $0 != NSRunningApplication.current }?.activate()
+                DispatchQueue.main.async {
+                    NSApp?.terminate(nil)
+                }
+            }
+        }
+
+        if shouldRunSetup {
+            Task { await state.setup() }
         }
     }
 
@@ -46,10 +59,7 @@ public struct FreeWisprApp: App {
             MenuBarView()
                 .environmentObject(appState)
         } label: {
-            MenuBarIcon(isRecording: appState.isRecording, isTranscribing: appState.isTranscribing)
-                .task {
-                    await appState.setup()
-                }
+            MenuBarIcon(isRecording: appState.isRecording, isTranscribing: appState.isTranscribing, isMicBusy: appState.isMicBusy)
         }
         .menuBarExtraStyle(.window)
     }
@@ -88,7 +98,7 @@ struct MenuBarView: View {
                 Picker("", selection: Binding(
                     get: { appState.selectedModel },
                     set: { newValue in
-                        guard hasAppeared, !appState.isSwitchingModel else { return }
+                        guard hasAppeared else { return }
                         Task { await appState.switchModel(to: newValue) }
                     }
                 )) {
@@ -97,12 +107,6 @@ struct MenuBarView: View {
                     }
                 }
                 .frame(width: 160)
-                .disabled(appState.isSwitchingModel)
-            }
-
-            if appState.modelManager.isDownloading {
-                ProgressView(value: appState.modelManager.downloadProgress)
-                    .progressViewStyle(.linear)
             }
 
             // AI Cleanup (macOS 26+ / Apple Intelligence)

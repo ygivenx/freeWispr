@@ -101,23 +101,28 @@ class ModelManager: ObservableObject {
             }
             let (tempZip, _) = try await URLSession.shared.download(from: coreMLDownloadURL(for: model), delegate: delegate)
 
-            // Unzip the Core ML model into the models directory
             let unzipDir = modelsDirectory
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-            process.arguments = ["-o", tempZip.path, "-d", unzipDir.path]
-            try process.run()
-            process.waitUntilExit()
-            try? FileManager.default.removeItem(at: tempZip)
+            let coreMLPath = localCoreMLPath(for: model)
+            let tempZipPath = tempZip.path
 
-            if process.terminationStatus != 0 {
-                try? FileManager.default.removeItem(at: localCoreMLPath(for: model))
-                throw ModelDownloadError.unzipFailed(process.terminationStatus)
-            }
+            try await Task.detached(priority: .utility) {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+                process.arguments = ["-o", tempZipPath, "-d", unzipDir.path]
+                try process.run()
+                process.waitUntilExit()
 
-            guard FileManager.default.fileExists(atPath: localCoreMLPath(for: model).path) else {
-                throw ModelDownloadError.outputMissing(localCoreMLPath(for: model).path)
-            }
+                try? FileManager.default.removeItem(at: URL(fileURLWithPath: tempZipPath))
+
+                if process.terminationStatus != 0 {
+                    try? FileManager.default.removeItem(at: coreMLPath)
+                    throw ModelDownloadError.unzipFailed(process.terminationStatus)
+                }
+
+                guard FileManager.default.fileExists(atPath: coreMLPath.path) else {
+                    throw ModelDownloadError.outputMissing(coreMLPath.path)
+                }
+            }.value
         }
 
         downloadProgress = 1.0

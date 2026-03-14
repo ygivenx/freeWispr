@@ -4,6 +4,8 @@
 
 FreeWispr is a privacy-first, local dictation app for macOS. It runs as a menu bar utility using push-to-talk: hold a hotkey to record, release to transcribe, text appears wherever your cursor is. All processing happens on-device via whisper.cpp with Core ML acceleration.
 
+For implementation and collaboration expectations (directory layout, commands, testing), refer to the [Repository Guidelines](AGENTS.md).
+
 ## Data Flow
 
 ```
