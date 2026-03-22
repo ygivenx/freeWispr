@@ -129,3 +129,14 @@ The workflow installs the cert in a temp keychain, builds, signs, notarizes, cre
 | Engine start/stop per recording | Mic indicator only shows while dictating |
 | Greedy + single segment | Fastest inference for short dictation clips |
 | Core ML encoder | Apple Neural Engine acceleration on Apple Silicon |
+
+## gstack
+
+Use the `/browse` skill from gstack for all web browsing. Never use `mcp__claude-in-chrome__*` tools.
+
+Available skills: `/office-hours`, `/plan-ceo-review`, `/plan-eng-review`, `/plan-design-review`, `/design-consultation`, `/review`, `/ship`, `/land-and-deploy`, `/canary`, `/benchmark`, `/browse`, `/qa`, `/qa-only`, `/design-review`, `/setup-browser-cookies`, `/setup-deploy`, `/retro`, `/investigate`, `/document-release`, `/codex`, `/cso`, `/autoplan`, `/careful`, `/freeze`, `/guard`, `/unfreeze`, `/gstack-upgrade`.
+
+### Setup (one-time per developer)
+```bash
+git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack && cd ~/.claude/skills/gstack && ./setup
+```
