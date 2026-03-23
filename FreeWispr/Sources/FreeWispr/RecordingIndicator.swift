@@ -34,11 +34,11 @@ final class RecordingIndicator {
 
         panel.contentView?.addSubview(dot)
 
-        // Position at top-center of the main screen
+        // Position at 1/3 from left, vertically centered on screen
         if let screen = NSScreen.main {
-            let screenFrame = screen.frame
-            let x = screenFrame.midX - Self.panelSize / 2
-            let y = screenFrame.maxY - Self.panelSize - 4 // just below menu bar
+            let visibleFrame = screen.visibleFrame
+            let x = visibleFrame.minX + visibleFrame.width / 3 - Self.panelSize / 2
+            let y = visibleFrame.minY + visibleFrame.height / 2 - Self.panelSize / 2
             panel.setFrameOrigin(NSPoint(x: x, y: y))
         }
 
