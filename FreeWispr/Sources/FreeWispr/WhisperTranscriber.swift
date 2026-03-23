@@ -15,6 +15,9 @@ class WhisperTranscriber: ObservableObject {
     @Published var isTranscribing = false
 
     private var whisper: Whisper?
+    private var modelPath: URL?
+    private var transcriptionCount = 0
+    private let refreshInterval = 50
     private static let inferenceTimeout: TimeInterval = 30
 
     func loadModel(at path: URL) throws {
@@ -26,12 +29,16 @@ class WhisperTranscriber: ObservableObject {
         params.single_segment = true     // Treat as one segment — faster
 
         whisper = Whisper(fromFileURL: path, withParams: params)
+        modelPath = path
         isModelLoaded = true
+        transcriptionCount = 0
     }
 
     func unloadModel() {
         whisper = nil
+        modelPath = nil
         isModelLoaded = false
+        transcriptionCount = 0
     }
 
     func transcribe(audioSamples: [Float]) async throws -> String {
@@ -54,6 +61,20 @@ class WhisperTranscriber: ObservableObject {
             let segments = try await whisper.transcribe(audioFrames: audioSamples)
             timeoutTask.cancel()
             let text = segments.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Periodically recreate the whisper context to reclaim accumulated
+            // memory from whisper.cpp's internal KV cache and Core ML encoder.
+            // Best-effort: if reload fails, keep using the current context and
+            // return the transcription we already have.
+            transcriptionCount += 1
+            if transcriptionCount >= refreshInterval, let path = modelPath {
+                do {
+                    try loadModel(at: path)
+                } catch {
+                    // Reload failed — continue with existing context.
+                }
+            }
+
             return text
         } catch is CancellationError {
             throw TranscriberError.timeout

@@ -2,12 +2,15 @@ import Cocoa
 import CoreGraphics
 import ApplicationServices
 
-class HotkeyManager: ObservableObject {
+@MainActor
+final class HotkeyManager: ObservableObject {
     @Published var isListening = false
 
-    var eventTap: CFMachPort?
+    // Accessed from the CGEvent tap C callback (non-isolated context).
+    // Thread safety is ensured by dispatching all reads/writes to DispatchQueue.main.
+    nonisolated(unsafe) var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    var isHotkeyHeld = false
+    nonisolated(unsafe) var isHotkeyHeld = false
 
     var onHotkeyDown: (() -> Void)?
     var onHotkeyUp: (() -> Void)?
@@ -83,12 +86,16 @@ private func hotkeyCallback(
     let ctrlOptionPressed = flags.contains(.maskControl) && flags.contains(.maskAlternate)
     let hotkeyActive = globePressed || ctrlOptionPressed
 
-    if hotkeyActive && !manager.isHotkeyHeld {
-        manager.isHotkeyHeld = true
-        DispatchQueue.main.async { manager.onHotkeyDown?() }
-    } else if !hotkeyActive && manager.isHotkeyHeld {
-        manager.isHotkeyHeld = false
-        DispatchQueue.main.async { manager.onHotkeyUp?() }
+    // Dispatch all state mutations to main thread to avoid data races
+    // with SwiftUI view updates that read from this ObservableObject.
+    DispatchQueue.main.async {
+        if hotkeyActive && !manager.isHotkeyHeld {
+            manager.isHotkeyHeld = true
+            manager.onHotkeyDown?()
+        } else if !hotkeyActive && manager.isHotkeyHeld {
+            manager.isHotkeyHeld = false
+            manager.onHotkeyUp?()
+        }
     }
 
     return Unmanaged.passUnretained(event)

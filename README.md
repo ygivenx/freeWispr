@@ -100,6 +100,51 @@ On first launch, FreeWispr will:
 - CGEvent for global hotkey
 - NSPasteboard for universal text injection via Cmd+V
 
+## Memory Profile
+
+FreeWispr keeps the whisper.cpp model loaded in memory for instant transcription. Measured on Apple Silicon (M4 Max) with the **base** model:
+
+| Category | Baseline | During Inference | Notes |
+|----------|----------|-----------------|-------|
+| MALLOC_LARGE | ~330 MB | ~330 MB | GGML model weights + KV cache + Core ML encoder buffers |
+| MALLOC_SMALL | ~27 MB | ~37 MB | General heap — audio buffers, Swift objects |
+| Neural (ANE) | 72 MB clean | 111 MB peak | Core ML encoder on Apple Neural Engine; reclaimable by OS |
+| **Total footprint** | **~375 MB** | **~376 MB** | Peak stays close to baseline |
+
+### Model size vs memory
+
+Larger models use proportionally more RAM:
+
+| Model | Disk Size | Approx. Footprint |
+|-------|-----------|-------------------|
+| tiny | ~75 MB | ~150 MB |
+| base (default) | ~142 MB | ~375 MB |
+| small | ~466 MB | ~700 MB |
+| medium | ~1.5 GB | ~2 GB |
+
+### Memory management
+
+To prevent unbounded memory growth during long sessions:
+
+- **Whisper context recreation** — The whisper.cpp context accumulates internal state (KV cache, intermediate buffers) across transcriptions ([whisper.cpp #2605](https://github.com/ggerganov/whisper.cpp/issues/2605)). FreeWispr recreates the context every 50 transcriptions to reclaim this memory.
+- **Audio buffer cap** — Recording buffers release excess capacity after long recordings (>60s) to prevent the high-water mark from persisting.
+- **LanguageModelSession reuse** — The AI Cleanup feature (macOS 26+) reuses a single on-device LLM session instead of creating one per correction.
+
+### Profiling
+
+To check memory usage of a running instance:
+
+```bash
+# Quick check
+ps -o pid,rss,%mem,command -p $(pgrep FreeWispr)
+
+# Detailed breakdown (requires sudo)
+sudo footprint -p $(pgrep FreeWispr)
+
+# VM region summary
+vmmap --summary $(pgrep FreeWispr)
+```
+
 ## Contributing
 
 Contributions are welcome! Please see the [issue tracker](https://github.com/ygivenx/freeWispr/issues) for open issues, or open a new one to discuss your idea.

@@ -120,7 +120,7 @@ struct MenuBarView: View {
 
             // AI Cleanup (macOS 26+ / Apple Intelligence)
             if appState.aiCorrectionStatus == .active {
-                HStack(spacing: 4) {
+                HStack {
                     Image(systemName: "sparkles")
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -128,12 +128,12 @@ struct MenuBarView: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Spacer()
-                    Toggle("", isOn: $appState.aiCorrectionEnabled)
+                    Toggle("AI Cleanup", isOn: $appState.aiCorrectionEnabled)
                         .toggleStyle(.switch)
                         .controlSize(.mini)
                         .tint(Color(nsColor: NSColor.systemGray))
+                        .labelsHidden()
                         .scaleEffect(0.8)
-                        .frame(width: 28)
                 }
             } else if appState.aiCorrectionStatus == .needsSetup {
                 Button {
@@ -151,7 +151,7 @@ struct MenuBarView: View {
                         LinearGradient(
                             colors: [
                                 Color(nsColor: NSColor.systemGray),
-                                Color.white.opacity(0.9),
+                                Color(nsColor: NSColor.labelColor).opacity(0.5),
                                 Color(nsColor: NSColor.systemGray),
                             ],
                             startPoint: .leading,
