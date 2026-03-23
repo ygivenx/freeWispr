@@ -177,7 +177,7 @@ class UpdateChecker: ObservableObject {
     }
 
     // Simple semver comparison: "1.2.3" > "1.1.0"
-    private func isNewer(_ candidate: String, than current: String) -> Bool {
+    func isNewer(_ candidate: String, than current: String) -> Bool {
         let a = candidate.split(separator: ".").compactMap { Int($0) }
         let b = current.split(separator: ".").compactMap { Int($0) }
         let count = max(a.count, b.count)
