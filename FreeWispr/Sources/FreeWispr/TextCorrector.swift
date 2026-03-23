@@ -1,9 +1,14 @@
 #if canImport(FoundationModels)
-import AppKit
+import Foundation
 import FoundationModels
+import os.log
+
+private let logger = Logger(subsystem: "com.ygivenx.FreeWispr", category: "TextCorrector")
 
 @available(macOS 26.0, *)
 final class TextCorrector {
+    private static let correctionTimeout: TimeInterval = 5
+
     private static let baseInstructions = """
         You are the text correction engine inside FreeWispr, a macOS dictation app. \
         The user held a push-to-talk hotkey, spoke into their microphone, and Whisper \
@@ -23,11 +28,29 @@ final class TextCorrector {
         - Your changes should be minimal: punctuation, capitalization, and obvious homophones only.
         """
 
+    // Bundle ID → app type category for context-aware correction
+    static let appTypeCategories: [String: String] = [
+        // Code editors
+        "com.apple.dt.Xcode": "code editor",
+        "com.microsoft.VSCode": "code editor",
+        "com.googlecode.iterm2": "code editor",
+        "com.apple.Terminal": "code editor",
+        // Browsers
+        "com.apple.Safari": "browser",
+        "com.google.Chrome": "browser",
+        "company.thebrowser.Browser": "browser",
+        "org.mozilla.firefox": "browser",
+        // Messaging
+        "com.apple.MobileSMS": "messaging",
+        "com.tinyspeck.slackmacgap": "messaging",
+        "us.zoom.xos": "messaging",
+    ]
+
     var isAvailable: Bool {
         SystemLanguageModel.default.availability == .available
     }
 
-    private static let refusalPrefixes = [
+    static let refusalPrefixes = [
         "i apologize",
         "i'm sorry",
         "i can't",
@@ -43,26 +66,50 @@ final class TextCorrector {
         "of course",
     ]
 
-    func correct(_ text: String) async -> String {
+    /// Correct transcribed text with a 5s timeout. Falls back to raw text on timeout.
+    /// Thread safety: appName and bundleID must be captured on @MainActor before calling.
+    func correct(_ text: String, appName: String?, bundleID: String?) async -> String {
         guard isAvailable else {
             return text
         }
-        do {
-            let instructions = Self.buildInstructions()
-            let session = LanguageModelSession(instructions: instructions)
-            let response = try await session.respond(to: text)
-            let result = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            if result.isEmpty || Self.looksLikeRefusal(result, originalText: text) {
+        // Race the LLM correction against a timeout — correction is nice-to-have,
+        // the transcription is the core value.
+        do {
+            return try await withThrowingTaskGroup(of: String.self) { group in
+                group.addTask {
+                    let instructions = Self.buildInstructions(appName: appName, bundleID: bundleID)
+                    let session = LanguageModelSession(instructions: instructions)
+                    let response = try await session.respond(to: text)
+                    let result = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    if result.isEmpty || Self.looksLikeRefusal(result, originalText: text) {
+                        return text
+                    }
+                    return result
+                }
+
+                group.addTask {
+                    try await Task.sleep(for: .seconds(Self.correctionTimeout))
+                    throw CancellationError()
+                }
+
+                // First task to complete wins
+                if let result = try await group.next() {
+                    group.cancelAll()
+                    return result
+                }
                 return text
             }
-            return result
         } catch {
+            if error is CancellationError {
+                logger.warning("LLM correction timed out after \(Self.correctionTimeout)s — using raw transcription")
+            }
             return text
         }
     }
 
-    private static func looksLikeRefusal(_ result: String, originalText: String) -> Bool {
+    static func looksLikeRefusal(_ result: String, originalText: String) -> Bool {
         let lower = result.lowercased()
 
         // If the original text itself starts with these phrases, don't flag it
@@ -82,12 +129,21 @@ final class TextCorrector {
         return false
     }
 
-    private static func buildInstructions() -> String {
+    static func buildInstructions(appName: String?, bundleID: String?) -> String {
         var context = baseInstructions
-        if let app = NSWorkspace.shared.frontmostApplication {
-            let name = app.localizedName ?? "unknown app"
-            context += " The user is currently typing in \(name)."
+
+        if let bundleID = bundleID {
+            let category = appTypeCategories[bundleID] ?? "general writing"
+            let name = appName ?? "unknown app"
+            context += " The user is currently typing in \(name) (\(category))."
+
+            if category == "code editor" {
+                context += " Preserve technical terms, variable names, function names, and programming keywords exactly as spoken. Do not 'correct' camelCase, snake_case, or acronyms like API, URL, HTTP."
+            }
+        } else if let appName = appName {
+            context += " The user is currently typing in \(appName)."
         }
+
         return context
     }
 }
