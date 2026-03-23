@@ -8,6 +8,12 @@ class AudioRecorder: ObservableObject {
     private var audioBuffer: [Float] = []
     private let bufferQueue = DispatchQueue(label: "com.ygivenx.FreeWispr.audioBuffer")
     private var isTapInstalled = false
+    /// Thread-safe recording flag read by the audio tap callback via bufferQueue
+    private var _isCapturing = false
+    /// Set when the audio hardware config changes mid-session (e.g. BT headset
+    /// connects, another app reconfigures the mic). The tap is rebuilt on the
+    /// next startRecording() call.
+    private var needsRebuild = false
 
     var onRecordingComplete: (([Float]) -> Void)?
 
@@ -25,6 +31,15 @@ class AudioRecorder: ObservableObject {
     func prepareEngine() throws {
         guard !isTapInstalled else { return }
 
+        // Observe hardware configuration changes (BT headset, mic switch, etc.)
+        NotificationCenter.default.removeObserver(self, name: .AVAudioEngineConfigurationChange, object: audioEngine)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleConfigurationChange),
+            name: .AVAudioEngineConfigurationChange,
+            object: audioEngine
+        )
+
         let inputNode = audioEngine.inputNode
         let hardwareFormat = inputNode.outputFormat(forBus: 0)
 
@@ -35,7 +50,11 @@ class AudioRecorder: ObservableObject {
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: hardwareFormat) {
             [weak self] buffer, _ in
-            guard let self = self, self.isRecording else { return }
+            guard let self = self else { return }
+
+            // Read _isCapturing under bufferQueue to avoid data race
+            let capturing = self.bufferQueue.sync { self._isCapturing }
+            guard capturing else { return }
 
             let frameCount = AVAudioFrameCount(
                 Double(buffer.frameLength) * (16000.0 / hardwareFormat.sampleRate)
@@ -62,11 +81,14 @@ class AudioRecorder: ObservableObject {
     }
 
     func startRecording() throws {
-        if !isTapInstalled {
+        if !isTapInstalled || needsRebuild {
+            resetEngine()
             try prepareEngine()
+            needsRebuild = false
         }
         bufferQueue.sync {
             audioBuffer.removeAll(keepingCapacity: true)
+            _isCapturing = true
         }
         do {
             try audioEngine.start()
@@ -91,9 +113,16 @@ class AudioRecorder: ObservableObject {
         }
     }
 
+    @objc private func handleConfigurationChange(_ notification: Notification) {
+        // Mark for rebuild — don't tear down now since we may be mid-recording.
+        // The tap will be rebuilt on the next startRecording() call.
+        needsRebuild = true
+    }
+
     func stopRecording() {
         guard isRecording else { return }
         isRecording = false
+        bufferQueue.sync { _isCapturing = false }
         audioEngine.stop()
 
         let finalBuffer = bufferQueue.sync { () -> [Float] in
