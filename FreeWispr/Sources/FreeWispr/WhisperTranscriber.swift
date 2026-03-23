@@ -1,9 +1,13 @@
 import Foundation
+import os.log
 import SwiftWhisper
+
+private let logger = Logger(subsystem: "com.ygivenx.FreeWispr", category: "WhisperTranscriber")
 
 enum TranscriberError: Error {
     case modelNotLoaded
     case transcriptionFailed(String)
+    case timeout
 }
 
 class WhisperTranscriber: ObservableObject {
@@ -11,6 +15,7 @@ class WhisperTranscriber: ObservableObject {
     @Published var isTranscribing = false
 
     private var whisper: Whisper?
+    private static let inferenceTimeout: TimeInterval = 30
 
     func loadModel(at path: URL) throws {
         let params = WhisperParams(strategy: .greedy)
@@ -37,8 +42,26 @@ class WhisperTranscriber: ObservableObject {
         isTranscribing = true
         defer { isTranscribing = false }
 
-        let segments = try await whisper.transcribe(audioFrames: audioSamples)
-        let text = segments.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
-        return text
+        // Start a timeout task that cancels inference after 30s.
+        // SwiftWhisper's cancel() uses whisper.cpp's abort callback for clean cancellation.
+        let timeoutTask = Task {
+            try await Task.sleep(for: .seconds(Self.inferenceTimeout))
+            logger.warning("Whisper inference timed out after \(Self.inferenceTimeout)s — cancelling")
+            try? await whisper.cancel()
+        }
+
+        do {
+            let segments = try await whisper.transcribe(audioFrames: audioSamples)
+            timeoutTask.cancel()
+            let text = segments.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+            return text
+        } catch is CancellationError {
+            throw TranscriberError.timeout
+        } catch WhisperError.cancelled {
+            throw TranscriberError.timeout
+        } catch {
+            timeoutTask.cancel()
+            throw error
+        }
     }
 }
