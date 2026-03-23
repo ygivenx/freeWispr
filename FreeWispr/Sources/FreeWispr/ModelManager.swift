@@ -139,7 +139,7 @@ class ModelManager: ObservableObject {
     /// Validate a GGML model file: non-empty and starts with GGML magic bytes (0x67676d6c).
     /// Deletes the file and throws on corruption so the next attempt re-downloads.
     nonisolated func validateGGMLFile(at url: URL) throws {
-        let ggmlMagic: [UInt8] = [0x67, 0x67, 0x6D, 0x6C] // "ggml"
+        let ggmlMagic: [UInt8] = [0x6C, 0x6D, 0x67, 0x67] // "ggml" in little-endian
 
         guard let fileHandle = try? FileHandle(forReadingFrom: url) else {
             throw ModelDownloadError.corruptedModel("Cannot open file")
