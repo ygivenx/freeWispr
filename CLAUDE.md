@@ -11,7 +11,7 @@ User holds hotkey (Ctrl+Option or Globe)
         ↓
 HotkeyManager detects key via CGEvent tap
         ↓
-AppState.startRecording()
+AppState.startRecording() → captures frontmost app, shows recording indicator
         ↓
 AudioRecorder captures mic → converts to 16kHz PCM float32
         ↓
@@ -19,7 +19,11 @@ User releases hotkey
         ↓
 AudioRecorder.stopRecording() → emits [Float] samples
         ↓
-WhisperTranscriber.transcribe(samples) → runs whisper.cpp inference
+Audio validation: reject < 0.3s or silence, normalize peak to 0.7
+        ↓
+WhisperTranscriber.transcribe(samples) → whisper.cpp inference (30s timeout)
+        ↓
+TextCorrector.correct(text) → on-device LLM fix (5s timeout, macOS 26+)
         ↓
 TextInjector.injectText(text) → clipboard + Cmd+V paste
         ↓
@@ -40,6 +44,9 @@ FreeWispr/
 │   ├── WhisperTranscriber.swift    # SwiftWhisper inference wrapper
 │   ├── TextInjector.swift          # Clipboard + keyboard simulation
 │   ├── ModelManager.swift          # Model download/storage lifecycle
+│   ├── TextCorrector.swift         # On-device LLM correction (macOS 26+)
+│   ├── RecordingIndicator.swift    # Floating red dot while recording
+│   ├── UpdateChecker.swift         # GitHub release update checker
 │   ├── BundleExtension.swift       # Resource bundle resolution
 │   ├── Info.plist                  # Bundle metadata (LSUIElement=true)
 │   └── Resources/                  # App icon, menu bar icons
@@ -58,28 +65,38 @@ scripts/
 ### AppState.swift — Orchestrator
 Central `@MainActor` state machine. Owns all managers, coordinates the full lifecycle:
 - `setup()` — check permissions, download model, load model, start hotkey, prepare audio
-- `startRecording()` / `stopAndTranscribe()` — hotkey callbacks
-- `switchModel(to:)` — unload, download if needed, reload
+- `startRecording()` — captures frontmost app context, starts mic, shows recording indicator
+- `stopAndTranscribe()` — stops mic, validates audio (min duration, silence), normalizes peak, transcribes, optionally corrects via LLM
+- `switchModel(to:)` — downloads new model first (keeping previous functional), then unloads and reloads
 
 ### HotkeyManager.swift — Global Hotkey
 Uses `CGEvent.tapCreate()` to listen for modifier key changes system-wide. Detects Globe key (`maskSecondaryFn`) or Ctrl+Option combo. Requires Accessibility permission. Fires `onHotkeyDown` / `onHotkeyUp` callbacks.
 
 ### AudioRecorder.swift — Audio Capture
-Captures from default mic via `AVAudioEngine`. Converts hardware format (44.1kHz stereo) to whisper format (16kHz mono float32) using `AVAudioConverter`. The audio tap is installed once during `prepareEngine()` to avoid repeated TCC permission checks. Engine starts/stops per recording so the mic indicator only shows while dictating. Buffer accumulation is thread-safe via a dedicated `DispatchQueue`.
+Captures from default mic via `AVAudioEngine`. Converts hardware format (44.1kHz stereo) to whisper format (16kHz mono float32) using `AVAudioConverter`. The audio tap is installed once during `prepareEngine()` to avoid repeated TCC permission checks. Engine starts/stops per recording so the mic indicator only shows while dictating. Buffer accumulation is thread-safe via a dedicated `DispatchQueue`. Observes `AVAudioEngineConfigurationChange` to rebuild the tap when hardware changes (BT headset, mic switch).
 
 ### WhisperTranscriber.swift — Inference
-Thin wrapper around SwiftWhisper. Loads GGML model with greedy decoding, English language preset, single-segment mode for speed. Transcription is async — returns joined segment text.
+Thin wrapper around SwiftWhisper. Loads GGML model with greedy decoding, English language preset, single-segment mode for speed. Transcription is async — returns joined segment text. 30-second timeout cancels inference via whisper.cpp abort callback. Periodically reloads model (every 50 transcriptions) to reclaim whisper.cpp KV cache memory.
 
 ### ModelManager.swift — Model Lifecycle
-Downloads GGML weights + Core ML encoder from Hugging Face. Stores in `~/Library/Application Support/FreeWispr/models/`. Tracks download progress (70% GGML, 30% Core ML). Core ML encoder is downloaded as `.zip` and extracted via `/usr/bin/unzip`.
+Downloads GGML weights + Core ML encoder from Hugging Face. Stores in `~/Library/Application Support/FreeWispr/models/`. Tracks download progress (70% GGML, 30% Core ML). Core ML encoder is downloaded as `.zip` and extracted via `/usr/bin/unzip`. Validates GGML files after download (magic byte check) and auto-deletes corrupt files.
 
 Model sizes: tiny (~75MB), base (~142MB, default), small (~466MB), medium (~1.5GB).
+
+### TextCorrector.swift — LLM Correction (macOS 26+)
+On-device text correction via Apple Intelligence FoundationModels framework. Fixes punctuation, capitalization, and homophones in Whisper output. 5-second timeout races LLM against raw transcription. App-aware context adjusts instructions for code editors (preserve camelCase/snake_case), browsers, and messaging apps. Includes refusal detection to fall back gracefully.
+
+### RecordingIndicator.swift — Visual Feedback
+Floating 12px red dot at top-center of screen using `NSPanel` at status-window level. Pulse animation respects `accessibilityDisplayShouldReduceMotion`. Visible on all Spaces, ignores mouse events.
+
+### UpdateChecker.swift — Auto-Update
+Checks GitHub Releases API for newer versions. Verifies DMG code signature via `SecStaticCode` before installation. Falls back to opening the release page when running unsigned (dev builds).
 
 ### TextInjector.swift — Universal Paste
 Saves current clipboard, sets transcribed text, simulates Cmd+V via `CGEvent`, then restores previous clipboard after 0.5s (checking `changeCount` to avoid clobbering user activity). Works in any app including terminals.
 
 ### BundleExtension.swift — Resource Resolution
-SPM's generated `Bundle.module` looks at the `.app` root, but signed bundles need resources in `Contents/Resources/`. `Bundle.appResources` checks the correct path first, falling back to `Bundle.module` for dev builds.
+SPM's generated `Bundle.module` looks at the `.app` root, but signed bundles need resources in `Contents/Resources/`. `Bundle.appResources` checks the correct path first, then the executable-adjacent path, falling back to `Bundle.main` for safe degradation.
 
 ## Threading Model
 
@@ -129,6 +146,11 @@ The workflow installs the cert in a temp keychain, builds, signs, notarizes, cre
 | Engine start/stop per recording | Mic indicator only shows while dictating |
 | Greedy + single segment | Fastest inference for short dictation clips |
 | Core ML encoder | Apple Neural Engine acceleration on Apple Silicon |
+| 30s inference timeout | Prevent hung whisper.cpp from blocking the app |
+| 5s LLM correction timeout | Correction is nice-to-have; raw transcription is the core value |
+| Download before unload | Failed model downloads keep previous model functional |
+| GGML magic byte validation | Detect corrupt downloads before loading into whisper.cpp |
+| Peak normalization to 0.7 | Consistent amplitude for quiet recordings improves transcription |
 
 ## gstack
 
