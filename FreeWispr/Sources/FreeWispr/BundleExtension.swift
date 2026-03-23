@@ -2,8 +2,8 @@ import Foundation
 
 extension Foundation.Bundle {
     /// Locates the resource bundle correctly in both .app bundles and SPM dev builds.
-    /// SPM's auto-generated Bundle.module uses bundleURL (the .app root), but signed
-    /// .app bundles require resources inside Contents/Resources/.
+    /// Signed .app bundles keep resources inside Contents/Resources/.
+    /// Returns main bundle as a safe fallback so callers can degrade gracefully.
     static let appResources: Bundle = {
         let bundleName = "FreeWispr_FreeWisprCore"
 
@@ -13,7 +13,17 @@ extension Foundation.Bundle {
             return bundle
         }
 
-        // Fallback: SPM's generated Bundle.module (works in dev builds)
-        return Bundle.module
+        // SwiftPM/debug fallback: resource bundle adjacent to executable
+        if let executableURL = Bundle.main.executableURL {
+            let candidate = executableURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("\(bundleName).bundle")
+            if let bundle = Bundle(url: candidate) {
+                return bundle
+            }
+        }
+
+        // Safe fallback: no crash if bundle is missing.
+        return .main
     }()
 }

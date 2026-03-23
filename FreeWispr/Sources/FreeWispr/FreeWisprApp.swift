@@ -59,17 +59,30 @@ struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
     @State private var hasAppeared = false
 
+    /// Maps status message to dot color: red = recording/error, orange = warning, blue = processing, green = ready.
+    private var statusDotColor: Color {
+        let msg = appState.statusMessage
+        if appState.isRecording { return .red }
+        if appState.isTranscribing { return .blue }
+        if msg.contains("failed") || msg.contains("error") || msg.contains("Failed") { return .red }
+        if msg.contains("timed out") || msg.contains("Too quiet") || msg.contains("Didn't catch")
+            || msg.contains("Mic busy") { return .orange }
+        if msg.starts(with: "Downloading") || msg.starts(with: "Correcting") { return .blue }
+        return .green
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Status
             HStack {
                 Circle()
-                    .fill(appState.isRecording ? Color.red :
-                            appState.isTranscribing ? Color.orange : Color.green)
+                    .fill(statusDotColor)
                     .frame(width: 8, height: 8)
                 Text(appState.statusMessage)
                     .font(.headline)
+                    .accessibilityLabel(appState.statusMessage)
             }
+            .accessibilityElement(children: .combine)
 
             Divider()
 
@@ -193,6 +206,15 @@ struct MenuBarView: View {
         .frame(width: 280)
         .onAppear {
             hasAppeared = true
+        }
+        .onChange(of: appState.statusMessage) { _, newValue in
+            // Announce errors and warnings to VoiceOver
+            if newValue.contains("failed") || newValue.contains("timed out")
+                || newValue.contains("Too quiet") || newValue.contains("Didn't catch")
+                || newValue.contains("Mic busy") || newValue.contains("error") {
+                NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                                     userInfo: [.announcement: newValue, .priority: NSAccessibilityPriorityLevel.high])
+            }
         }
     }
 }

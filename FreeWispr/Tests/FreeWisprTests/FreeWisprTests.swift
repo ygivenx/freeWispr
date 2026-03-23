@@ -15,6 +15,40 @@ final class ModelDownloadErrorTests: XCTestCase {
         let err = ModelDownloadError.outputMissing("/some/path")
         XCTAssertTrue(err.errorDescription?.contains("/some/path") == true)
     }
+
+    func testCorruptedModelDescription() {
+        let err = ModelDownloadError.corruptedModel("bad magic")
+        XCTAssertTrue(err.errorDescription?.contains("bad magic") == true)
+    }
+}
+
+// MARK: - ModelSize
+
+final class ModelSizeTests: XCTestCase {
+
+    func testDisplayNames() {
+        XCTAssertEqual(ModelSize.tiny.displayName, "Tiny")
+        XCTAssertEqual(ModelSize.base.displayName, "Base")
+        XCTAssertEqual(ModelSize.small.displayName, "Small")
+        XCTAssertEqual(ModelSize.medium.displayName, "Medium")
+    }
+
+    func testSizeDescriptions() {
+        XCTAssertEqual(ModelSize.tiny.sizeDescription, "~75 MB")
+        XCTAssertEqual(ModelSize.base.sizeDescription, "~142 MB")
+        XCTAssertEqual(ModelSize.small.sizeDescription, "~466 MB")
+        XCTAssertEqual(ModelSize.medium.sizeDescription, "~1.5 GB")
+    }
+
+    func testAllCasesCount() {
+        XCTAssertEqual(ModelSize.allCases.count, 4)
+    }
+
+    func testIdentifiable() {
+        for size in ModelSize.allCases {
+            XCTAssertEqual(size.id, size.rawValue)
+        }
+    }
 }
 
 // MARK: - TextInjector clipboard preservation

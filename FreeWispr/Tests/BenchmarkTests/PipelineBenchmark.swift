@@ -149,7 +149,7 @@ final class PipelineBenchmark: XCTestCase {
             if #available(macOS 26.0, *), correctorAvailable {
                 let corrector = TextCorrector()
                 let corrStart = CFAbsoluteTimeGetCurrent()
-                correctedText = await corrector.correct(rawText)
+                correctedText = await corrector.correct(rawText, appName: nil, bundleID: nil)
                 correctionTime = CFAbsoluteTimeGetCurrent() - corrStart
                 totalCorrectionTime += correctionTime
             }

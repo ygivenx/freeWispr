@@ -26,9 +26,12 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../FreeWispr" && pwd)"
 BUILD_DIR="$SCRIPT_DIR/../build"
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
 DMG_PATH="$BUILD_DIR/$APP_NAME-$VERSION.dmg"
+RESOURCE_BUNDLE_NAME="${APP_NAME}_FreeWisprCore.bundle"
 
 ENTITLEMENTS="$PROJECT_DIR/$APP_NAME.entitlements"
 INFO_PLIST="$PROJECT_DIR/Sources/$APP_NAME/Info.plist"
+
+mkdir -p "$BUILD_DIR"
 
 echo "==> Stage 1: Building $APP_NAME (release, arm64)"
 cd "$PROJECT_DIR"
@@ -48,7 +51,13 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$BUILT_BINARY" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 cp "$INFO_PLIST" "$APP_BUNDLE/Contents/Info.plist"
 cp "$PROJECT_DIR/Sources/$APP_NAME/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/"
-cp -R "$PROJECT_DIR/.build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}Core.bundle" "$APP_BUNDLE/Contents/Resources/"
+RESOURCE_BUNDLE_PATH="$PROJECT_DIR/.build/arm64-apple-macosx/release/$RESOURCE_BUNDLE_NAME"
+if [ ! -d "$RESOURCE_BUNDLE_PATH" ]; then
+    echo "Error: Resource bundle not found at $RESOURCE_BUNDLE_PATH"
+    echo "Expected bundle name: $RESOURCE_BUNDLE_NAME"
+    exit 1
+fi
+cp -R "$RESOURCE_BUNDLE_PATH" "$APP_BUNDLE/Contents/Resources/"
 
 # Stamp version into the bundle plist
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_BUNDLE/Contents/Info.plist"
@@ -64,6 +73,7 @@ codesign --force --deep \
 
 echo "    Verifying signature..."
 codesign --verify --verbose=2 "$APP_BUNDLE"
+spctl -a -vvv --type exec "$APP_BUNDLE"
 
 echo "==> Stage 4: Notarization"
 # Create a temporary zip for notarization submission
@@ -100,6 +110,17 @@ rm -rf "$DMG_STAGING"
 
 echo "    Signing DMG..."
 codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH"
+codesign --verify --verbose=2 "$DMG_PATH"
+spctl -a -vvv --type open "$DMG_PATH"
+
+echo "==> Stage 6: Notarizing DMG"
+xcrun notarytool submit "$DMG_PATH" \
+    --keychain-profile "$NOTARIZE_PROFILE" \
+    --wait
+
+echo "    Stapling notarization ticket to DMG..."
+xcrun stapler staple "$DMG_PATH"
+spctl -a -vvv --type open "$DMG_PATH"
 
 echo ""
 echo "Done! Artifacts:"

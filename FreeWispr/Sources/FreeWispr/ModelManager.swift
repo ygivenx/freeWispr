@@ -3,11 +3,13 @@ import Foundation
 enum ModelDownloadError: LocalizedError {
     case unzipFailed(Int32)
     case outputMissing(String)
+    case corruptedModel(String)
 
     var errorDescription: String? {
         switch self {
         case .unzipFailed(let code): return "Failed to extract Core ML encoder (unzip exit code \(code))"
         case .outputMissing(let path): return "Expected model file not found after extraction: \(path)"
+        case .corruptedModel(let reason): return "Model file is corrupted: \(reason)"
         }
     }
 }
@@ -88,6 +90,9 @@ class ModelManager: ObservableObject {
             }
             let (tempURL, _) = try await URLSession.shared.download(from: downloadURL(for: model), delegate: delegate)
             try FileManager.default.moveItem(at: tempURL, to: localModelPath(for: model))
+
+            // Validate GGML file: check size > 0 and magic bytes
+            try validateGGMLFile(at: localModelPath(for: model))
         }
 
         // Download Core ML encoder
@@ -128,6 +133,28 @@ class ModelManager: ObservableObject {
         let path = localModelPath(for: model)
         if FileManager.default.fileExists(atPath: path.path) {
             try FileManager.default.removeItem(at: path)
+        }
+    }
+
+    /// Validate a GGML model file: non-empty and starts with GGML magic bytes (0x67676d6c).
+    /// Deletes the file and throws on corruption so the next attempt re-downloads.
+    nonisolated func validateGGMLFile(at url: URL) throws {
+        let ggmlMagic: [UInt8] = [0x6C, 0x6D, 0x67, 0x67] // "ggml" in little-endian
+
+        guard let fileHandle = try? FileHandle(forReadingFrom: url) else {
+            throw ModelDownloadError.corruptedModel("Cannot open file")
+        }
+        defer { fileHandle.closeFile() }
+
+        guard let headerData = try? fileHandle.read(upToCount: 4), headerData.count == 4 else {
+            try? FileManager.default.removeItem(at: url)
+            throw ModelDownloadError.corruptedModel("File too small — truncated download")
+        }
+
+        let headerBytes = Array(headerData)
+        guard headerBytes == ggmlMagic else {
+            try? FileManager.default.removeItem(at: url)
+            throw ModelDownloadError.corruptedModel("Invalid GGML header — corrupted download")
         }
     }
 }
