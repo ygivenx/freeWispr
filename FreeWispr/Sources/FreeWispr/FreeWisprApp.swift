@@ -88,29 +88,34 @@ struct MenuBarView: View {
 
             // Hotkey display
             HStack {
-                Text("Hotkey:")
+                Text("Push to Talk:")
                 Spacer()
                 Text("🌐 Globe or ⌃⌥")
                     .foregroundColor(.secondary)
             }
 
             // Model selector
-            HStack {
-                Text("Model:")
-                Spacer()
-                Picker("", selection: Binding(
-                    get: { appState.selectedModel },
-                    set: { newValue in
-                        guard hasAppeared, !appState.isSwitchingModel else { return }
-                        Task { await appState.switchModel(to: newValue) }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text("Model:")
+                    Spacer()
+                    Picker("", selection: Binding(
+                        get: { appState.selectedModel },
+                        set: { newValue in
+                            guard hasAppeared, !appState.isSwitchingModel else { return }
+                            Task { await appState.switchModel(to: newValue) }
+                        }
+                    )) {
+                        ForEach(ModelSize.allCases) { size in
+                            Text("\(size.displayName) (\(size.sizeDescription))").tag(size)
+                        }
                     }
-                )) {
-                    ForEach(ModelSize.allCases) { size in
-                        Text("\(size.displayName) (\(size.sizeDescription))").tag(size)
-                    }
+                    .frame(width: 160)
+                    .disabled(appState.isSwitchingModel)
                 }
-                .frame(width: 160)
-                .disabled(appState.isSwitchingModel)
+                Text("Larger models improve accuracy; base works for most English")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
 
             if appState.modelManager.isDownloading {
@@ -124,11 +129,11 @@ struct MenuBarView: View {
                     Image(systemName: "sparkles")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                    Text("AI Cleanup")
+                    Text("Auto-correct")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Spacer()
-                    Toggle("AI Cleanup", isOn: $appState.aiCorrectionEnabled)
+                    Toggle("Auto-correct", isOn: $appState.aiCorrectionEnabled)
                         .toggleStyle(.switch)
                         .controlSize(.mini)
                         .tint(Color(nsColor: NSColor.systemGray))
