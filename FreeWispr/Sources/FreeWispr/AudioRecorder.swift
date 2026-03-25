@@ -114,9 +114,26 @@ class AudioRecorder: ObservableObject {
     }
 
     @objc private func handleConfigurationChange(_ notification: Notification) {
-        // Mark for rebuild — don't tear down now since we may be mid-recording.
-        // The tap will be rebuilt on the next startRecording() call.
-        needsRebuild = true
+        // AVAudioEngine automatically removes the installed tap and stops itself
+        // when the hardware configuration changes (e.g. another app like Teams
+        // releases the microphone). Dispatch all state mutations to the main
+        // thread: the notification can arrive on an unspecified thread in some
+        // configurations, and @Published properties must only be mutated on the
+        // main thread to avoid data races that cause SwiftUI actor-isolation
+        // crashes (EXC_BAD_ACCESS in swift_task_isCurrentExecutorWithFlagsImpl).
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            // Reflect the engine's auto-removal of the tap so that the next
+            // resetEngine() call does not attempt to remove an already-absent
+            // tap, which produces undefined behaviour / NSException.
+            self.isTapInstalled = false
+            self.needsRebuild = true
+            // If a recording was in progress when the hardware changed, stop it
+            // cleanly so AppState can reset its UI state via onRecordingComplete.
+            if self.isRecording {
+                self.stopRecording()
+            }
+        }
     }
 
     func stopRecording() {
