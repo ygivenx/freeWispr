@@ -101,6 +101,7 @@ class AppState: ObservableObject {
         }
 
         Task { await updateChecker.checkForUpdate() }
+        updateChecker.startPeriodicChecks()
     }
 
     func startRecording() {
