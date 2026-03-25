@@ -171,11 +171,19 @@ struct MenuBarView: View {
 
             if appState.updateChecker.updateAvailable,
                let latest = appState.updateChecker.latestVersion {
-                if appState.updateChecker.isUpdating {
+                if appState.updateChecker.isInstalling {
                     HStack(spacing: 4) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Downloading update...")
+                        Text("Installing update…")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } else if appState.updateChecker.isUpdating {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Downloading update…")
                             .font(.caption)
                             .foregroundColor(.secondary)
                     }
