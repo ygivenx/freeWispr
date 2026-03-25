@@ -88,15 +88,15 @@ struct MenuBarView: View {
 
             // Hotkey display
             HStack {
-                Text("Push-to-Talk Key:")
+                Text("Shortcut:")
                 Spacer()
-                Text("Hold 🌐 Globe or ⌃⌥")
+                Text("🌐 Globe or ⌃⌥")
                     .foregroundColor(.secondary)
             }
 
             // Model selector
             HStack {
-                Text("Speech Model:")
+                Text("Whisper Model:")
                 Spacer()
                 Picker("", selection: Binding(
                     get: { appState.selectedModel },
@@ -124,11 +124,11 @@ struct MenuBarView: View {
                     Image(systemName: "sparkles")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                    Text("Fix Punctuation & Capitalization")
+                    Text("Auto-correct")
                         .font(.caption)
                         .foregroundColor(.secondary)
                     Spacer()
-                    Toggle("Fix Punctuation & Capitalization", isOn: $appState.aiCorrectionEnabled)
+                    Toggle("Auto-correct", isOn: $appState.aiCorrectionEnabled)
                         .toggleStyle(.switch)
                         .controlSize(.mini)
                         .tint(Color(nsColor: NSColor.systemGray))
