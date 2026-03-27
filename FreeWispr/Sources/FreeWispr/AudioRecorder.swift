@@ -18,12 +18,17 @@ class AudioRecorder: ObservableObject {
     var onRecordingComplete: (([Float]) -> Void)?
 
     private lazy var whisperFormat: AVAudioFormat = {
-        AVAudioFormat(
+        guard let format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: 16000,
             channels: 1,
             interleaved: false
-        )!
+        ) else {
+            // 16 kHz mono float32 is universally supported; failing here indicates a
+            // serious system-level audio misconfiguration that warrants a hard stop.
+            fatalError("FreeWispr: cannot create 16 kHz mono PCM format — audio subsystem unavailable")
+        }
+        return format
     }()
 
     /// Install the audio tap once during setup. This avoids recreating
@@ -150,6 +155,28 @@ class AudioRecorder: ObservableObject {
             audioBuffer.removeAll(keepingCapacity: audioBuffer.capacity <= maxRetainedCapacity)
             return copy
         }
-        onRecordingComplete?(finalBuffer)
+        // Always deliver the completion callback on the main thread. stopRecording()
+        // may be called from handleConfigurationChange (already main-dispatched) or
+        // directly from AppState (@MainActor), so this is typically a no-op hop, but
+        // it guards against any future call-site that runs off main.
+        // Capture the closure value now (before any potential dealloc) rather than
+        // capturing self weakly to avoid an unnecessary retain cycle.
+        let completion = onRecordingComplete
+        if Thread.isMainThread {
+            completion?(finalBuffer)
+        } else {
+            DispatchQueue.main.async { completion?(finalBuffer) }
+        }
+    }
+
+    deinit {
+        // Remove the AVAudioEngineConfigurationChange observer so that a hardware-change
+        // notification arriving after this object is released does not invoke the
+        // @objc selector on a dangling pointer (EXC_BAD_ACCESS).
+        NotificationCenter.default.removeObserver(self)
+        audioEngine.stop()
+        if isTapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+        }
     }
 }

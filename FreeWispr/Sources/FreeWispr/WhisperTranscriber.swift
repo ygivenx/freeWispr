@@ -8,6 +8,7 @@ enum TranscriberError: Error {
     case modelNotLoaded
     case transcriptionFailed(String)
     case timeout
+    case alreadyTranscribing
 }
 
 class WhisperTranscriber: ObservableObject {
@@ -30,15 +31,19 @@ class WhisperTranscriber: ObservableObject {
 
         whisper = Whisper(fromFileURL: path, withParams: params)
         modelPath = path
-        isModelLoaded = true
         transcriptionCount = 0
+        // @Published mutations must happen on the main thread to avoid data races
+        // with SwiftUI's attribute graph. loadModel() is synchronous and may be
+        // called from a background thread (periodic model refresh inside transcribe()),
+        // so use async dispatch rather than a blocking hop.
+        DispatchQueue.main.async { [weak self] in self?.isModelLoaded = true }
     }
 
     func unloadModel() {
         whisper = nil
         modelPath = nil
-        isModelLoaded = false
         transcriptionCount = 0
+        DispatchQueue.main.async { [weak self] in self?.isModelLoaded = false }
     }
 
     func transcribe(audioSamples: [Float]) async throws -> String {
@@ -46,8 +51,16 @@ class WhisperTranscriber: ObservableObject {
             throw TranscriberError.modelNotLoaded
         }
 
-        isTranscribing = true
-        defer { isTranscribing = false }
+        // Prevent re-entrant calls: two concurrent whisper.cpp inference sessions
+        // on the same context would corrupt its internal state.
+        guard !isTranscribing else {
+            throw TranscriberError.alreadyTranscribing
+        }
+
+        // @Published mutations must happen on the main thread. Set the flag
+        // synchronously before the first suspension point so that any concurrent
+        // main-actor check (e.g. AppState.startRecording) sees the correct state.
+        await MainActor.run { isTranscribing = true }
 
         // Start a timeout task that cancels inference after 30s.
         // SwiftWhisper's cancel() uses whisper.cpp's abort callback for clean cancellation.
@@ -75,13 +88,20 @@ class WhisperTranscriber: ObservableObject {
                 }
             }
 
+            // Clear the flag on the main thread before returning so that the
+            // caller (AppState.transcribeAndInject, @MainActor) sees isTranscribing
+            // as false the moment this await returns — no scheduling gap.
+            await MainActor.run { isTranscribing = false }
             return text
         } catch is CancellationError {
+            await MainActor.run { isTranscribing = false }
             throw TranscriberError.timeout
         } catch WhisperError.cancelled {
+            await MainActor.run { isTranscribing = false }
             throw TranscriberError.timeout
         } catch {
             timeoutTask.cancel()
+            await MainActor.run { isTranscribing = false }
             throw error
         }
     }

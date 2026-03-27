@@ -18,7 +18,7 @@ class UpdateChecker: ObservableObject {
 
     let currentVersion: String = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
 
-    private let apiURL = URL(string: "https://api.github.com/repos/ygivenx/freeWispr/releases/latest")!
+    private let apiURL: URL? = URL(string: "https://api.github.com/repos/ygivenx/freeWispr/releases/latest")
     private var dmgAssetURL: URL?
 
     /// Expected Team ID for code signature verification.
@@ -35,6 +35,10 @@ class UpdateChecker: ObservableObject {
     }()
 
     func checkForUpdate() async {
+        guard let apiURL else {
+            logger.error("Update check skipped: could not construct API URL")
+            return
+        }
         var request = URLRequest(url: apiURL)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
 
