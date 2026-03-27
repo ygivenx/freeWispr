@@ -104,7 +104,7 @@ class AppState: ObservableObject {
     }
 
     func startRecording() {
-        guard !isRecording else { return }
+        guard !isRecording, !isTranscribing else { return }
 
         // Capture frontmost app on @MainActor for thread-safe use in LLM context and focus check
         let frontmostApp = NSWorkspace.shared.frontmostApplication
@@ -148,6 +148,15 @@ class AppState: ObservableObject {
     private func transcribeAndInject(_ samples: [Float]) async {
         isRecording = false
         recordingIndicator.hide()
+
+        // If a transcription is already running (e.g. hardware disconnect fired
+        // while whisper is mid-inference), drop this request rather than setting
+        // isTranscribing = false and breaking the in-flight session's state.
+        guard !isTranscribing else {
+            logger.warning("transcribeAndInject called while already transcribing — dropping")
+            return
+        }
+
         guard !samples.isEmpty else {
             statusMessage = "Ready"
             return
@@ -205,7 +214,7 @@ class AppState: ObservableObject {
     }
 
     func switchModel(to model: ModelSize) async {
-        guard !isSwitchingModel else { return }
+        guard !isSwitchingModel, !isRecording, !isTranscribing else { return }
         isSwitchingModel = true
         defer { isSwitchingModel = false }
 

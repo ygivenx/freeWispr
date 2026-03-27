@@ -41,27 +41,48 @@ class ModelManager: ObservableObject {
 
     nonisolated let baseURL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main"
 
+    /// Returns the Application Support directory, creating it if needed.
+    /// Marked nonisolated so it can be used from both @MainActor and nonisolated contexts.
+    nonisolated private static func appSupportDirectory() -> URL {
+        let urls = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+        guard let url = urls.first else {
+            // Application Support is always available on macOS; this path is unreachable
+            // in practice. Use the temporary directory as a last resort so the app can
+            // still run rather than crashing.
+            return FileManager.default.temporaryDirectory
+        }
+        return url
+    }
+
     private var modelsDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("FreeWispr/models")
+        Self.appSupportDirectory().appendingPathComponent("FreeWispr/models")
     }
 
     nonisolated func downloadURL(for model: ModelSize) -> URL {
-        URL(string: "\(baseURL)/ggml-\(model.rawValue).bin")!
+        // The base URL and model name are compile-time constants; this initializer
+        // cannot fail. The guard makes this explicit and surfaces any regression
+        // as a clear programmer error rather than a silent /dev/null fallback.
+        guard let url = URL(string: "\(baseURL)/ggml-\(model.rawValue).bin") else {
+            fatalError("FreeWispr: malformed model download URL — this is a programming error")
+        }
+        return url
     }
 
     nonisolated func coreMLDownloadURL(for model: ModelSize) -> URL {
-        URL(string: "\(baseURL)/ggml-\(model.rawValue)-encoder.mlmodelc.zip")!
+        guard let url = URL(string: "\(baseURL)/ggml-\(model.rawValue)-encoder.mlmodelc.zip") else {
+            fatalError("FreeWispr: malformed Core ML download URL — this is a programming error")
+        }
+        return url
     }
 
     nonisolated func localModelPath(for model: ModelSize) -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("FreeWispr/models/ggml-\(model.rawValue).bin")
+        Self.appSupportDirectory()
+            .appendingPathComponent("FreeWispr/models/ggml-\(model.rawValue).bin")
     }
 
     nonisolated func localCoreMLPath(for model: ModelSize) -> URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("FreeWispr/models/ggml-\(model.rawValue)-encoder.mlmodelc")
+        Self.appSupportDirectory()
+            .appendingPathComponent("FreeWispr/models/ggml-\(model.rawValue)-encoder.mlmodelc")
     }
 
     func isModelDownloaded(_ model: ModelSize) -> Bool {

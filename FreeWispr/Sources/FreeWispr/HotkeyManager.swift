@@ -55,6 +55,16 @@ final class HotkeyManager: ObservableObject {
         runLoopSource = nil
         isListening = false
     }
+
+    deinit {
+        // The C callback holds an unretained pointer to this object. Disable and
+        // invalidate the tap before the object is released so any in-flight or
+        // subsequent CGEvent callbacks do not dereference a dangling pointer.
+        if let tap = eventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
+    }
 }
 
 private func hotkeyCallback(
