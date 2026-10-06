@@ -8,10 +8,12 @@ let package = Package(
         .package(url: "https://github.com/exPHAT/SwiftWhisper.git", revision: "c340197966ebd264f3135d3955874b40f8ed58bc"),
     ],
     targets: [
+        .target(name: "MicrophoneCapture", path: "Sources/MicrophoneCapture"),
+        .target(name: "MicrophoneCaptureTestSupport", path: "Tests/Fixtures/MicrophoneCapture"),
         // Core library — importable by tests
         .target(
             name: "FreeWisprCore",
-            dependencies: ["SwiftWhisper"],
+            dependencies: ["SwiftWhisper", "MicrophoneCapture"],
             path: "Sources/FreeWispr",
             exclude: ["Info.plist"],
             resources: [.copy("Resources")]
@@ -24,7 +26,7 @@ let package = Package(
         ),
         .testTarget(
             name: "FreeWisprTests",
-            dependencies: ["FreeWisprCore"],
+            dependencies: ["FreeWisprCore", "MicrophoneCapture", "MicrophoneCaptureTestSupport"],
             path: "Tests/FreeWisprTests"
         ),
         .testTarget(

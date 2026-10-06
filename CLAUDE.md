@@ -64,7 +64,7 @@ scripts/
 
 ### AppState.swift — Orchestrator
 Central `@MainActor` state machine. Owns all managers, coordinates the full lifecycle:
-- `setup()` — check permissions, download model, load model, start hotkey, prepare audio
+- `setup()` — check permissions, download model, load model, start hotkey
 - `startRecording()` — captures frontmost app context, starts mic, shows recording indicator
 - `stopAndTranscribe()` — stops mic, validates audio (min duration, silence), normalizes peak, transcribes, optionally corrects via LLM
 - `switchModel(to:)` — downloads new model first (keeping previous functional), then unloads and reloads
@@ -73,10 +73,10 @@ Central `@MainActor` state machine. Owns all managers, coordinates the full life
 Uses `CGEvent.tapCreate()` to listen for modifier key changes system-wide. Detects Globe key (`maskSecondaryFn`) or Ctrl+Option combo. Requires Accessibility permission. Fires `onHotkeyDown` / `onHotkeyUp` callbacks.
 
 ### AudioRecorder.swift — Audio Capture
-Captures from default mic via `AVAudioEngine`. Converts hardware format (44.1kHz stereo) to whisper format (16kHz mono float32) using `AVAudioConverter`. The audio tap is installed once during `prepareEngine()` to avoid repeated TCC permission checks. Engine starts/stops per recording so the mic indicator only shows while dictating. Buffer accumulation is thread-safe via a dedicated `DispatchQueue`. Observes `AVAudioEngineConfigurationChange` to rebuild the tap when hardware changes (BT headset, mic switch).
+A main-actor recorder opens a fresh default-microphone engine for every recording via the native `MicrophoneCapture` target. It rejects a busy microphone, validates the live format, installs a tap without forcing a cached format, and retries startup once. Native engine operations catch Objective-C exceptions and release taps/observers on teardown. Configuration changes arrive on the main queue, are matched to the current session, and discard interrupted audio while resetting the UI. `AudioCaptureBuffer` owns each attempt's samples/converter and serializes conversion/finalization on a dedicated queue; it supplies each input buffer only once and converts delivered formats to 16kHz mono float32. Tests inject engines and a native exception fixture without opening the microphone.
 
 ### WhisperTranscriber.swift — Inference
-Thin wrapper around SwiftWhisper. Loads GGML model with greedy decoding, English language preset, single-segment mode for speed. Transcription is async — returns joined segment text. 30-second timeout cancels inference via whisper.cpp abort callback. Periodically reloads model (every 50 transcriptions) to reclaim whisper.cpp KV cache memory.
+Main-actor wrapper around SwiftWhisper with a guard against overlapping inference. Loads GGML model with greedy decoding, English language preset, single-segment mode for speed. Transcription is async — returns joined segment text. 30-second timeout cancels inference via whisper.cpp abort callback. Periodically reloads model (every 50 transcriptions) to reclaim whisper.cpp KV cache memory.
 
 ### ModelManager.swift — Model Lifecycle
 Downloads GGML weights + Core ML encoder from Hugging Face. Stores in `~/Library/Application Support/FreeWispr/models/`. Tracks download progress (70% GGML, 30% Core ML). Core ML encoder is downloaded as `.zip` and extracted via `/usr/bin/unzip`. Validates GGML files after download (magic byte check) and auto-deletes corrupt files.
@@ -87,7 +87,7 @@ Model sizes: tiny (~75MB), base (~142MB, default), small (~466MB), medium (~1.5G
 On-device text correction via Apple Intelligence FoundationModels framework. Fixes punctuation, capitalization, and homophones in Whisper output. 5-second timeout races LLM against raw transcription. App-aware context adjusts instructions for code editors (preserve camelCase/snake_case), browsers, and messaging apps. Includes refusal detection to fall back gracefully.
 
 ### RecordingIndicator.swift — Visual Feedback
-Floating 12px red dot at top-center of screen using `NSPanel` at status-window level. Pulse animation respects `accessibilityDisplayShouldReduceMotion`. Visible on all Spaces, ignores mouse events.
+Floating 12px red dot at top-center of screen using `NSPanel` at status-window level. Pulse animation respects `accessibilityDisplayShouldReduceMotion`. Visible on all Spaces, ignores mouse events. Screen-change notifications reposition the panel after external-monitor changes; observers and panels are cleaned up on teardown.
 
 ### UpdateChecker.swift — Auto-Update
 Checks GitHub Releases API for newer versions. Verifies DMG code signature via `SecStaticCode` before installation. Falls back to opening the release page when running unsigned (dev builds).
@@ -142,7 +142,7 @@ The workflow installs the cert in a temp keychain, builds, signs, notarizes, cre
 | Menu bar app (`LSUIElement`) | Always available, no dock clutter |
 | Push-to-talk | Precise control, low latency, familiar UX |
 | Clipboard + Cmd+V | Universal — works in every app including terminals |
-| One-time audio tap install | Avoids repeated AudioConverter creation and TCC checks |
+| Fresh engine per recording | Avoids stale device formats after Teams or USB/dock route changes |
 | Engine start/stop per recording | Mic indicator only shows while dictating |
 | Greedy + single segment | Fastest inference for short dictation clips |
 | Core ML encoder | Apple Neural Engine acceleration on Apple Silicon |

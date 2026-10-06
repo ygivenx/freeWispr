@@ -1,155 +1,151 @@
 import AVFoundation
 import Foundation
+import MicrophoneCapture
 
-class AudioRecorder: ObservableObject {
-    @Published var isRecording = false
+protocol MicrophoneEngine: AnyObject {
+    var onConfigurationChange: (() -> Void)? { get set }
+    func start(tap: @escaping AVAudioNodeTapBlock) throws
+    func stop()
+}
 
-    private let audioEngine = AVAudioEngine()
-    private var audioBuffer: [Float] = []
-    private let bufferQueue = DispatchQueue(label: "com.ygivenx.FreeWispr.audioBuffer")
-    private var isTapInstalled = false
-    /// Thread-safe recording flag read by the audio tap callback via bufferQueue
-    private var _isCapturing = false
-    /// Set when the audio hardware config changes mid-session (e.g. BT headset
-    /// connects, another app reconfigures the mic). The tap is rebuilt on the
-    /// next startRecording() call.
-    private var needsRebuild = false
+extension FWMicrophoneEngine: MicrophoneEngine {}
+
+enum AudioRecorderError: LocalizedError {
+    case micInUse
+
+    var errorDescription: String? { "Microphone is in use by another app" }
+}
+
+@MainActor
+final class AudioRecorder: ObservableObject {
+    @Published private(set) var isRecording = false
+
+    private let makeEngine: () -> MicrophoneEngine
+    private let isMicrophoneInUse: () -> Bool
+    private var sessionID: UUID?
+    private var engine: MicrophoneEngine?
+    private var capture: AudioCaptureBuffer?
 
     var onRecordingComplete: (([Float]) -> Void)?
 
-    private lazy var whisperFormat: AVAudioFormat = {
-        AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: 16000,
-            channels: 1,
-            interleaved: false
-        )!
-    }()
+    var onRecordingInterrupted: (() -> Void)?
 
-    /// Install the audio tap once during setup. This avoids recreating
-    /// AudioConverters and triggering TCC permission checks on every recording.
-    func prepareEngine() throws {
-        guard !isTapInstalled else { return }
-
-        // Observe hardware configuration changes (BT headset, mic switch, etc.)
-        NotificationCenter.default.removeObserver(self, name: .AVAudioEngineConfigurationChange, object: audioEngine)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleConfigurationChange),
-            name: .AVAudioEngineConfigurationChange,
-            object: audioEngine
-        )
-
-        let inputNode = audioEngine.inputNode
-        let hardwareFormat = inputNode.outputFormat(forBus: 0)
-
-        guard let converter = AVAudioConverter(from: hardwareFormat, to: whisperFormat) else {
-            throw NSError(domain: "AudioRecorder", code: 1,
-                         userInfo: [NSLocalizedDescriptionKey: "Cannot create audio format converter"])
-        }
-
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: hardwareFormat) {
-            [weak self] buffer, _ in
-            guard let self = self else { return }
-
-            // Read _isCapturing under bufferQueue to avoid data race
-            let capturing = self.bufferQueue.sync { self._isCapturing }
-            guard capturing else { return }
-
-            let frameCount = AVAudioFrameCount(
-                Double(buffer.frameLength) * (16000.0 / hardwareFormat.sampleRate)
-            )
-            guard let converted = AVAudioPCMBuffer(pcmFormat: self.whisperFormat, frameCapacity: frameCount) else { return }
-
-            var error: NSError?
-            converter.convert(to: converted, error: &error) { _, outStatus in
-                outStatus.pointee = .haveData
-                return buffer
-            }
-
-            guard error == nil, let channelData = converted.floatChannelData else { return }
-
-            let samples = Array(UnsafeBufferPointer(start: channelData[0], count: Int(converted.frameLength)))
-
-            self.bufferQueue.async {
-                self.audioBuffer.append(contentsOf: samples)
-            }
-        }
-
-        audioEngine.prepare()
-        isTapInstalled = true
+    init(makeEngine: @escaping () -> MicrophoneEngine = { FWMicrophoneEngine() },
+         isMicrophoneInUse: @escaping () -> Bool = { FWMicrophoneEngine.isDefaultInputInUse() }) {
+        self.makeEngine = makeEngine
+        self.isMicrophoneInUse = isMicrophoneInUse
     }
 
     func startRecording() throws {
-        if !isTapInstalled || needsRebuild {
-            resetEngine()
-            try prepareEngine()
-            needsRebuild = false
-        }
-        bufferQueue.sync {
-            audioBuffer.removeAll(keepingCapacity: true)
-            _isCapturing = true
-        }
-        do {
-            try audioEngine.start()
-        } catch {
-            // The hardware format may have changed (e.g. another app like Teams
-            // reconfigured the mic). Rebuild the tap with the current format and
-            // retry once.
-            resetEngine()
-            try prepareEngine()
-            try audioEngine.start()
-        }
-        isRecording = true
-    }
-
-    /// Tear down the audio tap so the next attempt rebuilds with the current
-    /// hardware format.
-    private func resetEngine() {
-        audioEngine.stop()
-        if isTapInstalled {
-            audioEngine.inputNode.removeTap(onBus: 0)
-            isTapInstalled = false
-        }
-    }
-
-    @objc private func handleConfigurationChange(_ notification: Notification) {
-        // AVAudioEngine automatically removes the installed tap and stops itself
-        // when the hardware configuration changes (e.g. another app like Teams
-        // releases the microphone). Dispatch all state mutations to the main
-        // thread: the notification can arrive on an unspecified thread in some
-        // configurations, and @Published properties must only be mutated on the
-        // main thread to avoid data races that cause SwiftUI actor-isolation
-        // crashes (EXC_BAD_ACCESS in swift_task_isCurrentExecutorWithFlagsImpl).
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            // Reflect the engine's auto-removal of the tap so that the next
-            // resetEngine() call does not attempt to remove an already-absent
-            // tap, which produces undefined behaviour / NSException.
-            self.isTapInstalled = false
-            self.needsRebuild = true
-            // If a recording was in progress when the hardware changed, stop it
-            // cleanly so AppState can reset its UI state via onRecordingComplete.
-            if self.isRecording {
-                self.stopRecording()
+        guard !isRecording else { return }
+        guard !isMicrophoneInUse() else { throw AudioRecorderError.micInUse }
+        // Retry once with an entirely new engine if the device is transitioning.
+        for attempt in 0..<2 {
+            let engine = makeEngine()
+            let capture = AudioCaptureBuffer()
+            let id = UUID()
+            engine.onConfigurationChange = { [weak self] in
+                // The native engine delivers route changes on the main queue.
+                MainActor.assumeIsolated { self?.handleConfigurationChange(sessionID: id) }
+            }
+            do {
+                try engine.start { buffer, _ in capture.append(buffer) }
+                self.engine = engine
+                self.capture = capture
+                self.sessionID = id
+                isRecording = true
+                return
+            } catch {
+                // Close the buffer before stopping: late tap callbacks must not
+                // leak samples into a later recording or a successful retry.
+                _ = capture.finish()
+                engine.onConfigurationChange = nil
+                engine.stop()
+                if attempt == 1 { throw error }
             }
         }
     }
 
     func stopRecording() {
         guard isRecording else { return }
-        isRecording = false
-        bufferQueue.sync { _isCapturing = false }
-        audioEngine.stop()
+        let samples = finishRecording()
+        onRecordingComplete?(samples)
+    }
 
-        let finalBuffer = bufferQueue.sync { () -> [Float] in
-            let copy = audioBuffer
-            // Release capacity if buffer grew beyond 60s of audio (16kHz mono)
-            // to prevent memory from ratcheting up after long recordings.
-            let maxRetainedCapacity = 16000 * 60
-            audioBuffer.removeAll(keepingCapacity: audioBuffer.capacity <= maxRetainedCapacity)
-            return copy
+    private func handleConfigurationChange(sessionID: UUID) {
+        guard isRecording, self.sessionID == sessionID else { return }
+        // A disconnected/reconfigured mic yields an incomplete recording.
+        // Discard it rather than unexpectedly injecting partial dictated text.
+        _ = finishRecording()
+        onRecordingInterrupted?()
+    }
+
+    private func finishRecording() -> [Float] {
+        isRecording = false
+        sessionID = nil
+        let samples = capture?.finish() ?? []
+        engine?.onConfigurationChange = nil
+        engine?.stop()
+        engine = nil
+        capture = nil
+        return samples
+    }
+}
+
+/// One recording attempt owns its converter and samples. All callback work and
+/// finalization are serialized, including callbacks arriving after engine stop.
+final class AudioCaptureBuffer {
+    private let queue = DispatchQueue(label: "com.ygivenx.FreeWispr.audioBuffer")
+    private var samples: [Float] = []
+    private var active = true
+    private var converter: AVAudioConverter?
+    private let outputFormat = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32, sampleRate: 16000,
+        channels: 1, interleaved: false
+    )!
+
+    func append(_ buffer: AVAudioPCMBuffer) {
+        queue.sync {
+            guard active, buffer.frameLength > 0,
+                  buffer.format.sampleRate.isFinite, buffer.format.sampleRate > 0,
+                  buffer.format.channelCount > 0 else { return }
+
+            // Use the actual delivered format, including changes during capture.
+            if converter?.inputFormat != buffer.format {
+                converter = AVAudioConverter(from: buffer.format, to: outputFormat)
+            }
+            guard let converter else { return }
+            let capacity = ceil(Double(buffer.frameLength) * 16000 / buffer.format.sampleRate)
+            guard capacity > 0, capacity < Double(UInt32.max),
+                  let converted = AVAudioPCMBuffer(
+                    pcmFormat: outputFormat, frameCapacity: AVAudioFrameCount(capacity)
+                  ) else { return }
+
+            var suppliedInput = false
+            var error: NSError?
+            converter.convert(to: converted, error: &error) { _, status in
+                // A converter may request input more than once. Returning the
+                // same buffer repeatedly duplicates audio and corrupts timing.
+                guard !suppliedInput else {
+                    status.pointee = .noDataNow
+                    return nil
+                }
+                suppliedInput = true
+                status.pointee = .haveData
+                return buffer
+            }
+            guard error == nil, let data = converted.floatChannelData else { return }
+            samples.append(contentsOf: UnsafeBufferPointer(start: data[0], count: Int(converted.frameLength)))
         }
-        onRecordingComplete?(finalBuffer)
+    }
+
+    func finish() -> [Float] {
+        queue.sync {
+            active = false
+            let result = samples
+            samples = []
+            converter = nil
+            return result
+        }
     }
 }

@@ -22,6 +22,7 @@ class AppState: ObservableObject {
     @Published var aiCorrectionEnabled = false
 
     private var isSetUp = false
+    private var isProcessingRecording = false
     private var textCorrector: Any?
     /// Frontmost app captured at recording start for focus check and LLM context
     private var recordingTargetAppName: String?
@@ -87,24 +88,30 @@ class AppState: ObservableObject {
         }
         _ = hotkeyManager.start()
 
-        // Set up audio completion handler and warm up the engine
+        // Reserve the pipeline synchronously before scheduling transcription.
         audioRecorder.onRecordingComplete = { [weak self] samples in
+            guard let self, !self.isProcessingRecording else { return }
+            self.isRecording = false
+            self.recordingIndicator.hide()
+            self.isProcessingRecording = true
             Task { @MainActor in
-                await self?.transcribeAndInject(samples)
+                defer { self.isProcessingRecording = false }
+                await self.transcribeAndInject(samples)
             }
         }
-
-        do {
-            try audioRecorder.prepareEngine()
-        } catch {
-            statusMessage = "Mic error: \(error.localizedDescription)"
+        audioRecorder.onRecordingInterrupted = { [weak self] in
+            guard let self else { return }
+            self.isRecording = false
+            self.recordingIndicator.hide()
+            self.showTemporaryStatus("Microphone changed — try recording again")
         }
 
         Task { await updateChecker.checkForUpdate() }
     }
 
     func startRecording() {
-        guard !isRecording else { return }
+        guard isSetUp, transcriber.isModelLoaded,
+              !isRecording, !isTranscribing, !isProcessingRecording, !isSwitchingModel else { return }
 
         // Capture frontmost app on @MainActor for thread-safe use in LLM context and focus check
         let frontmostApp = NSWorkspace.shared.frontmostApplication
@@ -116,8 +123,11 @@ class AppState: ObservableObject {
             isRecording = true
             statusMessage = "Listening..."
             recordingIndicator.show()
+        } catch AudioRecorderError.micInUse {
+            showTemporaryStatus("Mic busy — another app is using the microphone")
         } catch {
-            statusMessage = "Mic busy — close other audio apps and retry"
+            logger.error("Microphone start failed: \(String(describing: error), privacy: .public)")
+            showTemporaryStatus("Mic error — check the input device and retry")
         }
     }
 
@@ -148,6 +158,7 @@ class AppState: ObservableObject {
     private func transcribeAndInject(_ samples: [Float]) async {
         isRecording = false
         recordingIndicator.hide()
+        guard !isTranscribing else { return }
         guard !samples.isEmpty else {
             statusMessage = "Ready"
             return
@@ -205,7 +216,7 @@ class AppState: ObservableObject {
     }
 
     func switchModel(to model: ModelSize) async {
-        guard !isSwitchingModel else { return }
+        guard !isSwitchingModel, !isRecording, !isTranscribing, !isProcessingRecording else { return }
         isSwitchingModel = true
         defer { isSwitchingModel = false }
 

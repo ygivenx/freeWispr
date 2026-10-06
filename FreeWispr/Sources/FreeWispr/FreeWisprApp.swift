@@ -25,20 +25,22 @@ struct MenuBarIcon: View {
 }
 
 public struct FreeWisprApp: App {
-    @StateObject private var appState = AppState()
+    @StateObject private var appState: AppState
 
     public init() {
-        // Prevent duplicate instances (only when running as .app with a bundle ID)
-        guard let bundleID = Bundle.main.bundleIdentifier else { return }
-        let runningApps = NSWorkspace.shared.runningApplications.filter {
-            $0.bundleIdentifier == bundleID
-        }
-        if runningApps.count > 1 {
-            runningApps.first { $0 != NSRunningApplication.current }?.activate()
-            DispatchQueue.main.async {
-                NSApp?.terminate(nil)
+        let state = AppState()
+        _appState = StateObject(wrappedValue: state)
+        if let bundleID = Bundle.main.bundleIdentifier {
+            let runningApps = NSWorkspace.shared.runningApplications.filter {
+                $0.bundleIdentifier == bundleID
+            }
+            if runningApps.count > 1 {
+                runningApps.first { $0 != NSRunningApplication.current }?.activate()
+                DispatchQueue.main.async { NSApp?.terminate(nil) }
+                return
             }
         }
+        Task { await state.setup() }
     }
 
     public var body: some Scene {
@@ -47,9 +49,6 @@ public struct FreeWisprApp: App {
                 .environmentObject(appState)
         } label: {
             MenuBarIcon(isRecording: appState.isRecording, isTranscribing: appState.isTranscribing)
-                .task {
-                    await appState.setup()
-                }
         }
         .menuBarExtraStyle(.window)
     }
@@ -66,7 +65,7 @@ struct MenuBarView: View {
         if appState.isTranscribing { return .blue }
         if msg.contains("failed") || msg.contains("error") || msg.contains("Failed") { return .red }
         if msg.contains("timed out") || msg.contains("Too quiet") || msg.contains("Didn't catch")
-            || msg.contains("Mic busy") { return .orange }
+            || msg.contains("Mic busy") || msg.contains("Microphone changed") { return .orange }
         if msg.starts(with: "Downloading") || msg.starts(with: "Correcting") { return .blue }
         return .green
     }
@@ -111,7 +110,7 @@ struct MenuBarView: View {
                         }
                     }
                     .frame(width: 160)
-                    .disabled(appState.isSwitchingModel)
+                    .disabled(appState.isSwitchingModel || appState.isRecording || appState.isTranscribing)
                 }
                 Text("Larger models improve accuracy; base works for most English")
                     .font(.caption2)
@@ -216,7 +215,7 @@ struct MenuBarView: View {
             // Announce errors and warnings to VoiceOver
             if newValue.contains("failed") || newValue.contains("timed out")
                 || newValue.contains("Too quiet") || newValue.contains("Didn't catch")
-                || newValue.contains("Mic busy") || newValue.contains("error") {
+                || newValue.contains("Mic busy") || newValue.contains("Microphone changed") || newValue.contains("error") {
                 NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
                                      userInfo: [.announcement: newValue, .priority: NSAccessibilityPriorityLevel.high])
             }
