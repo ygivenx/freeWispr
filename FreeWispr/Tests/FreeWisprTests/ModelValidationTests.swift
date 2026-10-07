@@ -21,8 +21,8 @@ final class ModelValidationTests: XCTestCase {
 
     func testValidGGMLFile() throws {
         let file = tempDir.appendingPathComponent("valid.bin")
-        // "ggml" magic bytes followed by some payload
-        var data = Data([0x67, 0x67, 0x6D, 0x6C])
+        // GGML stores its magic number in little-endian byte order.
+        var data = Data([0x6C, 0x6D, 0x67, 0x67])
         data.append(Data(repeating: 0x00, count: 100))
         try data.write(to: file)
 

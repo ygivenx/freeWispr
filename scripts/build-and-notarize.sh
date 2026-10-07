@@ -73,7 +73,6 @@ codesign --force --deep \
 
 echo "    Verifying signature..."
 codesign --verify --verbose=2 "$APP_BUNDLE"
-spctl -a -vvv --type exec "$APP_BUNDLE"
 
 echo "==> Stage 4: Notarization"
 # Create a temporary zip for notarization submission
@@ -88,6 +87,8 @@ rm -f "$NOTARIZE_ZIP"
 
 echo "    Stapling notarization ticket..."
 xcrun stapler staple "$APP_BUNDLE"
+xcrun stapler validate "$APP_BUNDLE"
+spctl -a -vvv --type exec "$APP_BUNDLE"
 
 echo "==> Stage 5: Creating DMG"
 rm -f "$DMG_PATH"
@@ -111,7 +112,6 @@ rm -rf "$DMG_STAGING"
 echo "    Signing DMG..."
 codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH"
 codesign --verify --verbose=2 "$DMG_PATH"
-spctl -a -vvv --type open "$DMG_PATH"
 
 echo "==> Stage 6: Notarizing DMG"
 xcrun notarytool submit "$DMG_PATH" \
@@ -120,7 +120,8 @@ xcrun notarytool submit "$DMG_PATH" \
 
 echo "    Stapling notarization ticket to DMG..."
 xcrun stapler staple "$DMG_PATH"
-spctl -a -vvv --type open "$DMG_PATH"
+xcrun stapler validate "$DMG_PATH"
+spctl -a -vvv --type open --context context:primary-signature "$DMG_PATH"
 
 echo ""
 echo "Done! Artifacts:"

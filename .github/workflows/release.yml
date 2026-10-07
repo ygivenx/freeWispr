@@ -18,7 +18,19 @@ jobs:
 
       - name: Extract version from tag
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must use vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          FILE_VERSION="$(tr -d '[:space:]' < VERSION)"
+          PLIST_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" FreeWispr/Sources/FreeWispr/Info.plist)
+          if [[ "$VERSION" != "$FILE_VERSION" || "$VERSION" != "$PLIST_VERSION" ]]; then
+            echo "Release tag, VERSION, and Info.plist must match"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Install signing certificate
         env:
@@ -62,6 +74,10 @@ jobs:
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
             --password "$APP_SPECIFIC_PASSWORD"
+
+      - name: Run unit tests
+        working-directory: FreeWispr
+        run: swift test --filter FreeWisprTests
 
       - name: Build release binary
         run: |
@@ -108,6 +124,9 @@ jobs:
 
           # Staple the ticket
           xcrun stapler staple "build/FreeWispr.app"
+          xcrun stapler validate "build/FreeWispr.app"
+          codesign --verify --deep --strict --verbose=2 "build/FreeWispr.app"
+          spctl -a -vv --type exec "build/FreeWispr.app"
 
       - name: Create DMG
         run: |
@@ -131,6 +150,17 @@ jobs:
 
           # Sign the DMG too
           codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$DMG_PATH"
+
+      - name: Notarize and verify DMG
+        run: |
+          DMG_PATH="build/FreeWispr-${{ steps.version.outputs.VERSION }}.dmg"
+          xcrun notarytool submit "$DMG_PATH" \
+            --keychain-profile "FreeWispr-notarize" \
+            --wait
+          xcrun stapler staple "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+          codesign --verify --verbose=2 "$DMG_PATH"
+          spctl -a -vv --type open --context context:primary-signature "$DMG_PATH"
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2

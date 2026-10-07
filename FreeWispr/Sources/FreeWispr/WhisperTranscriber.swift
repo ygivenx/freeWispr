@@ -8,9 +8,11 @@ enum TranscriberError: Error {
     case modelNotLoaded
     case transcriptionFailed(String)
     case timeout
+    case alreadyTranscribing
 }
 
-class WhisperTranscriber: ObservableObject {
+@MainActor
+final class WhisperTranscriber: ObservableObject {
     @Published var isModelLoaded = false
     @Published var isTranscribing = false
 
@@ -42,6 +44,7 @@ class WhisperTranscriber: ObservableObject {
     }
 
     func transcribe(audioSamples: [Float]) async throws -> String {
+        guard !isTranscribing else { throw TranscriberError.alreadyTranscribing }
         guard let whisper = whisper else {
             throw TranscriberError.modelNotLoaded
         }
@@ -56,6 +59,7 @@ class WhisperTranscriber: ObservableObject {
             logger.warning("Whisper inference timed out after \(Self.inferenceTimeout)s — cancelling")
             try? await whisper.cancel()
         }
+        defer { timeoutTask.cancel() }
 
         do {
             let segments = try await whisper.transcribe(audioFrames: audioSamples)

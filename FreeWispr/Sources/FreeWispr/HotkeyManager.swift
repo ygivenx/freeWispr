@@ -55,6 +55,13 @@ final class HotkeyManager: ObservableObject {
         runLoopSource = nil
         isListening = false
     }
+
+    deinit {
+        if let tap = eventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
+    }
 }
 
 private func hotkeyCallback(

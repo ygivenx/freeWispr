@@ -1,10 +1,29 @@
 import AppKit
 
-/// A small floating red dot that appears at the top-center of the screen while recording.
+/// A floating red dot that appears while recording.
 /// Uses NSPanel at status-window level so it floats above all apps and appears on all Spaces.
+@MainActor
 final class RecordingIndicator {
     private var panel: NSPanel?
-    private var pulseTimer: Timer?
+    private var screenObserver: NSObjectProtocol?
+
+    init() {
+        screenObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let panel = self.panel else { return }
+                self.positionPanel(panel)
+            }
+        }
+    }
+
+    deinit {
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        // Actor-isolated objects may still be released by a nonisolated owner.
+        let panel = panel
+        DispatchQueue.main.async { panel?.orderOut(nil) }
+    }
 
     private static let dotSize: CGFloat = 12
     private static let panelPadding: CGFloat = 4
@@ -34,13 +53,7 @@ final class RecordingIndicator {
 
         panel.contentView?.addSubview(dot)
 
-        // Position at 1/3 from left, vertically centered on screen
-        if let screen = NSScreen.main {
-            let visibleFrame = screen.visibleFrame
-            let x = visibleFrame.minX + visibleFrame.width / 3 - Self.panelSize / 2
-            let y = visibleFrame.minY + visibleFrame.height / 2 - Self.panelSize / 2
-            panel.setFrameOrigin(NSPoint(x: x, y: y))
-        }
+        positionPanel(panel)
 
         panel.orderFrontRegardless()
         self.panel = panel
@@ -52,10 +65,17 @@ final class RecordingIndicator {
     }
 
     func hide() {
-        pulseTimer?.invalidate()
-        pulseTimer = nil
         panel?.orderOut(nil)
         panel = nil
+    }
+
+    private func positionPanel(_ panel: NSPanel) {
+        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+        let frame = screen.visibleFrame
+        panel.setFrameOrigin(NSPoint(
+            x: frame.minX + frame.width / 3 - Self.panelSize / 2,
+            y: frame.minY + frame.height / 2 - Self.panelSize / 2
+        ))
     }
 
     private func startPulsing(dot: NSView) {

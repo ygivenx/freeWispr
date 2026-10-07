@@ -40,7 +40,7 @@
 **[Download the latest release](https://github.com/ygivenx/freeWispr/releases/latest)** — grab the `.dmg`, drag to Applications, done.
 
 > Signed with Apple Developer ID and notarized by Apple — no Gatekeeper warnings.
-> Requires macOS 14+ on Apple Silicon or Intel.
+> Requires macOS 14+ on Apple Silicon (M1 or later); the downloadable DMG is arm64 only.
 
 <!--
 ### Homebrew (coming soon)
@@ -69,7 +69,7 @@ That's it. All processing happens locally on your Mac.
 ## Requirements
 
 - macOS 14+
-- Apple Silicon or Intel Mac
+- Apple Silicon Mac (M1 or later) for the downloadable DMG
 - Accessibility permission (for global hotkey)
 - Microphone permission
 
@@ -144,6 +144,10 @@ sudo footprint -p $(pgrep FreeWispr)
 # VM region summary
 vmmap --summary $(pgrep FreeWispr)
 ```
+
+## Releasing
+
+See the [release and distribution checklist](docs/releasing.md) for signing, notarization, GitHub releases, and storefront verification.
 
 ## Contributing
 
