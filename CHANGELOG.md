@@ -13,7 +13,10 @@ All notable changes to FreeWispr will be documented in this file.
 - Remove audio configuration observers and hotkey event taps during teardown; ignore delayed notifications from previous recordings.
 - Start setup from the app lifecycle so menu label updates cannot cancel initialization.
 - Supply each audio buffer to the sample-rate converter only once.
-- Update both bundle version fields to 1.3.2 (the source plist previously still reported 1.2.1).
+- Notarize and verify the distributable DMG in stable and tip release workflows; run unit tests before packaging.
+- Match release tags to VERSION and Info.plist, and run local Gatekeeper checks after notarization.
+- Correct downloadable-build requirements to Apple Silicon and add a release/distribution checklist.
+- Update VERSION and both bundle version fields to 1.3.2 (the source plist previously still reported 1.2.1).
 
 ## [1.3.1] - 2026-03-25
 
