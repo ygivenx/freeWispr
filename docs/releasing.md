@@ -38,6 +38,21 @@ No Gumroad API integration, credential, or repository webhook was found during t
 
 If Gumroad delivers an uploaded DMG, update the existing product's **Content** with the exact notarized `FreeWispr-1.3.2.dmg` from GitHub. If it delivers a download link, inspect whether it points to the stable GitHub release page or an old version-specific file. Verify both a new customer's delivery and an existing customer's library download with [Gumroad's test-purchase feature](https://gumroad.com/help/article/62-testing-a-purchase). Software version numbers do not require creating a new Gumroad pricing tier.
 
+The product is [FreeWispr on Gumroad](https://rohanite25.gumroad.com/l/opcwt). Its public listing was inspected on October 6, 2026:
+
+- The description and embedded demo advertise **v1.3.0**, while GitHub's latest stable release is v1.3.1. Update the description to v1.3.2 only after that release is published; label the existing video as an older demo or replace it.
+- Remove the visible editing note beginning “--- Key changes: added v1.3.0 feature highlights”.
+- The price is **$14.99**, with “22 left” displayed. Confirm that this inventory limit is intentional for a digital download.
+- The listing correctly specifies Apple Silicon and English dictation. Add **macOS 14+**, and retain the separate **macOS 26+** requirement for Apple Intelligence correction.
+- The “Free AI Powered” wording alongside a paid checkout is ambiguous. Consider “Local AI dictation for Mac. $14.99, future upgrades included.” The repository remains publicly available.
+- “Secure auto-updates” should explain the current behavior: an update prompt downloads a signed DMG that the customer installs manually.
+- “Size: 3.6 MB” describes only the small app package. Explain that first launch also downloads the selected speech model and Core ML encoder, requiring additional storage and network access.
+- The public purchase button points to Gumroad checkout, and an existing customer can request their download link. The actual delivered file, receipt, and library content are not visible on the public page and were not verified.
+
+After publishing v1.3.2, suggested release text:
+
+> v1.3.2 improves microphone handoff and recovery when Teams uses the microphone or a USB dock changes audio devices. When another app is using the default microphone, FreeWispr asks you to try again after it is free. Requires an Apple Silicon Mac and macOS 14 or later. Apple Intelligence correction requires macOS 26 or later. Updates download a signed installer for manual installation.
+
 Check the listing's version, macOS/Apple Silicon requirements, installation instructions, price, receipt link, and delivered file. Publishing on GitHub does not prove that a storefront's uploaded file has changed. Send customer notifications only when explicitly requested.
 
 ## Audit results: October 6, 2026
@@ -47,4 +62,4 @@ Check the listing's version, macOS/Apple Silicon requirements, installation inst
 - The app's signature validated and Gatekeeper accepted it as **Notarized Developer ID**. Its public signing certificate expires February 1, 2027; the CI secret may contain a different certificate.
 - The v1.3.1 DMG signature validated, but Gatekeeper rejected the DMG itself as **Unnotarized Developer ID**. Release workflows now notarize/staple/assess the DMG before publication; a newly packaged artifact must still prove this path succeeds.
 - All eight tiny/base/small/medium model and Core ML encoder URLs returned HTTP 200 using HEAD requests. Files were not downloaded in full.
-- Gumroad product URL, delivered content, and customer flow remain unverified until the product/account is identified.
+- The Gumroad public listing was inspected: it advertises v1.3.0, includes a leftover editing note, and charges $14.99. Delivered content and the customer purchase/library flows still require account access and a test purchase.
