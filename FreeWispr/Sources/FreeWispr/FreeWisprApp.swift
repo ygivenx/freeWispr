@@ -65,8 +65,10 @@ struct MenuBarView: View {
         if appState.isTranscribing { return .blue }
         if msg.contains("failed") || msg.contains("error") || msg.contains("Failed") { return .red }
         if msg.contains("timed out") || msg.contains("Too quiet") || msg.contains("Didn't catch")
-            || msg.contains("Mic busy") || msg.contains("Microphone changed") { return .orange }
-        if msg.starts(with: "Downloading") || msg.starts(with: "Correcting") { return .blue }
+            || msg.contains("Mic busy") || msg.contains("Microphone changed") || msg.contains("clipping")
+            || msg.contains("Accessibility") { return .orange }
+        if msg.starts(with: "Downloading") || msg.starts(with: "Correcting")
+            || msg.starts(with: "Preparing") { return .blue }
         return .green
     }
 
@@ -99,20 +101,25 @@ struct MenuBarView: View {
                     Text("Model:")
                     Spacer()
                     Picker("", selection: Binding(
-                        get: { appState.selectedModel },
+                        get: { appState.engine },
                         set: { newValue in
                             guard hasAppeared, !appState.isSwitchingModel else { return }
-                            Task { await appState.switchModel(to: newValue) }
+                            Task { await appState.switchEngine(to: newValue) }
                         }
                     )) {
+                        if appState.appleAvailable {
+                            Text("Apple (built-in)").tag(TranscriptionEngine.apple)
+                        }
                         ForEach(ModelSize.allCases) { size in
-                            Text("\(size.displayName) (\(size.sizeDescription))").tag(size)
+                            Text("\(size.displayName) (\(size.sizeDescription))").tag(TranscriptionEngine.whisper(size))
                         }
                     }
                     .frame(width: 160)
                     .disabled(appState.isSwitchingModel || appState.isRecording || appState.isTranscribing)
                 }
-                Text("Larger models improve accuracy; base works for most English")
+                Text(appState.appleAvailable
+                     ? "Apple is most accurate and needs no download"
+                     : "Larger models improve accuracy; base works for most English")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }

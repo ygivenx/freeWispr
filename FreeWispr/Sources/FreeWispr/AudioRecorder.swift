@@ -26,23 +26,38 @@ final class AudioRecorder: ObservableObject {
     private var engine: MicrophoneEngine?
     private var capture: AudioCaptureBuffer?
 
+    private let releaseTail: TimeInterval
+    private var tailWork: DispatchWorkItem?
+
     var onRecordingComplete: (([Float]) -> Void)?
 
     var onRecordingInterrupted: (() -> Void)?
 
+    /// Receives each converted 16 kHz chunk on the capture queue while recording.
+    /// Read once per recording at start, so changing it later never affects an in-flight capture.
+    var onChunk: (([Float]) -> Void)?
+
+    /// `releaseTail`: keep capturing this long after `stopRecording()` so the last
+    /// word isn't clipped when the key is released early. 0 completes synchronously.
     init(makeEngine: @escaping () -> MicrophoneEngine = { FWMicrophoneEngine() },
-         isMicrophoneInUse: @escaping () -> Bool = { FWMicrophoneEngine.isDefaultInputInUse() }) {
+         isMicrophoneInUse: @escaping () -> Bool = { FWMicrophoneEngine.isDefaultInputInUse() },
+         releaseTail: TimeInterval = 0) {
         self.makeEngine = makeEngine
         self.isMicrophoneInUse = isMicrophoneInUse
+        self.releaseTail = releaseTail
     }
 
     func startRecording() throws {
         guard !isRecording else { return }
-        guard !isMicrophoneInUse() else { throw AudioRecorderError.micInUse }
+        // A new press during the tail: deliver the pending recording first. Skip the in-use
+        // check then, since our own just-stopped engine can still read as running.
+        let hadPending = capture != nil
+        completePendingRecording()
+        if !hadPending, isMicrophoneInUse() { throw AudioRecorderError.micInUse }
         // Retry once with an entirely new engine if the device is transitioning.
         for attempt in 0..<2 {
             let engine = makeEngine()
-            let capture = AudioCaptureBuffer()
+            let capture = AudioCaptureBuffer(onChunk: onChunk)
             let id = UUID()
             engine.onConfigurationChange = { [weak self] in
                 // The native engine delivers route changes on the main queue.
@@ -68,12 +83,30 @@ final class AudioRecorder: ObservableObject {
 
     func stopRecording() {
         guard isRecording else { return }
-        let samples = finishRecording()
-        onRecordingComplete?(samples)
+        isRecording = false
+        guard releaseTail > 0 else {
+            completePendingRecording()
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in self?.completePendingRecording() }
+        tailWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + releaseTail, execute: work)
+    }
+
+    /// Finishes the capture and delivers it. Idempotent: clearing `capture` ensures
+    /// a recording is never delivered twice (tail timer vs. a new start).
+    private func completePendingRecording() {
+        guard capture != nil else { return }
+        onRecordingComplete?(finishRecording())
     }
 
     private func handleConfigurationChange(sessionID: UUID) {
-        guard isRecording, self.sessionID == sessionID else { return }
+        guard self.sessionID == sessionID else { return }
+        // Already released (in the tail): what was captured is the whole utterance.
+        guard isRecording else {
+            completePendingRecording()
+            return
+        }
         // A disconnected/reconfigured mic yields an incomplete recording.
         // Discard it rather than unexpectedly injecting partial dictated text.
         _ = finishRecording()
@@ -81,6 +114,8 @@ final class AudioRecorder: ObservableObject {
     }
 
     private func finishRecording() -> [Float] {
+        tailWork?.cancel()
+        tailWork = nil
         isRecording = false
         sessionID = nil
         let samples = capture?.finish() ?? []
@@ -98,11 +133,16 @@ final class AudioCaptureBuffer {
     private let queue = DispatchQueue(label: "com.ygivenx.FreeWispr.audioBuffer")
     private var samples: [Float] = []
     private var active = true
+    private let onChunk: (([Float]) -> Void)?
     private var converter: AVAudioConverter?
     private let outputFormat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32, sampleRate: 16000,
         channels: 1, interleaved: false
     )!
+
+    init(onChunk: (([Float]) -> Void)? = nil) {
+        self.onChunk = onChunk
+    }
 
     func append(_ buffer: AVAudioPCMBuffer) {
         queue.sync {
@@ -135,7 +175,9 @@ final class AudioCaptureBuffer {
                 return buffer
             }
             guard error == nil, let data = converted.floatChannelData else { return }
-            samples.append(contentsOf: UnsafeBufferPointer(start: data[0], count: Int(converted.frameLength)))
+            let chunk = Array(UnsafeBufferPointer(start: data[0], count: Int(converted.frameLength)))
+            samples.append(contentsOf: chunk)
+            onChunk?(chunk)  // still inside `active`: never fires after finish()
         }
     }
 

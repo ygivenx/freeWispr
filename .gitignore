@@ -10,3 +10,5 @@ certs/
 .worktrees/
 scripts/benchmark-data/
 scripts/benchmark-results.tsv
+.gstack/
+scripts/benchmark-engines.tsv

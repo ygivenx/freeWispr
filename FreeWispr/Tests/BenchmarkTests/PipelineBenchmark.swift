@@ -4,7 +4,7 @@
 import XCTest
 @testable import FreeWisprCore
 
-private func loadWAV(at path: URL) throws -> [Float] {
+func loadWAV(at path: URL) throws -> [Float] {
     let data = try Data(contentsOf: path)
     guard data.count >= 44 else { fatalError("WAV too small") }
 

@@ -6,6 +6,8 @@ import AppKit
 final class RecordingIndicator {
     private var panel: NSPanel?
     private var screenObserver: NSObjectProtocol?
+    private var captionBox: NSVisualEffectView?
+    private var captionLabel: NSTextField?
 
     init() {
         screenObserver = NotificationCenter.default.addObserver(
@@ -28,6 +30,9 @@ final class RecordingIndicator {
     private static let dotSize: CGFloat = 12
     private static let panelPadding: CGFloat = 4
     private static let panelSize = dotSize + panelPadding * 2
+    private static let captionMaxWidth: CGFloat = 420
+    private static let captionGap: CGFloat = 6
+    private static let captionInset = NSSize(width: 10, height: 6)
 
     func show() {
         guard panel == nil else { return }
@@ -67,6 +72,67 @@ final class RecordingIndicator {
     func hide() {
         panel?.orderOut(nil)
         panel = nil
+        captionBox = nil
+        captionLabel = nil
+    }
+
+    /// Shows live recognized text beside the dot (empty hides it). Head-truncated so the newest words stay visible.
+    func updatePreview(_ text: String) {
+        guard let panel else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            captionBox?.isHidden = true
+            resize(panel, to: NSSize(width: Self.panelSize, height: Self.panelSize))
+            return
+        }
+
+        if captionBox == nil {
+            // HUD material is dark translucent; the panel stays non-activating and mouse-transparent.
+            let box = NSVisualEffectView()
+            box.material = .hudWindow
+            box.appearance = NSAppearance(named: .vibrantDark)
+            box.blendingMode = .behindWindow
+            box.state = .active
+            box.wantsLayer = true
+            box.layer?.cornerRadius = 10
+            box.layer?.masksToBounds = true
+            let label = NSTextField(wrappingLabelWithString: "")
+            label.font = .systemFont(ofSize: 13)
+            label.textColor = .white
+            label.maximumNumberOfLines = 2
+            label.lineBreakMode = .byTruncatingHead
+            label.cell?.truncatesLastVisibleLine = true
+            box.addSubview(label)
+            panel.contentView?.addSubview(box)
+            captionBox = box
+            captionLabel = label
+        }
+        guard let box = captionBox, let label = captionLabel else { return }
+        label.stringValue = trimmed
+        box.isHidden = false
+
+        let inset = Self.captionInset
+        let maxText = Self.captionMaxWidth - inset.width * 2
+        label.preferredMaxLayoutWidth = maxText
+        let fit = label.sizeThatFits(NSSize(width: maxText, height: .greatestFiniteMagnitude))
+        let textSize = NSSize(width: min(ceil(fit.width), maxText), height: ceil(fit.height))
+        let boxSize = NSSize(width: textSize.width + inset.width * 2, height: textSize.height + inset.height * 2)
+        let total = NSSize(width: Self.panelSize + Self.captionGap + boxSize.width,
+                           height: max(Self.panelSize, boxSize.height))
+        resize(panel, to: total)
+        box.frame = NSRect(x: Self.panelSize + Self.captionGap, y: (total.height - boxSize.height) / 2,
+                           width: boxSize.width, height: boxSize.height)
+        label.frame = NSRect(x: inset.width, y: inset.height, width: textSize.width, height: textSize.height)
+    }
+
+    /// Resizes while keeping the dot where it was (left edge and vertical center stay fixed).
+    private func resize(_ panel: NSPanel, to size: NSSize) {
+        let old = panel.frame
+        panel.setFrame(NSRect(x: old.minX, y: old.midY - size.height / 2, width: size.width, height: size.height),
+                       display: true)
+        if let dot = panel.contentView?.subviews.first(where: { $0 !== captionBox }) {
+            dot.frame.origin = NSPoint(x: Self.panelPadding, y: (size.height - Self.dotSize) / 2)
+        }
     }
 
     private func positionPanel(_ panel: NSPanel) {
@@ -74,7 +140,7 @@ final class RecordingIndicator {
         let frame = screen.visibleFrame
         panel.setFrameOrigin(NSPoint(
             x: frame.minX + frame.width / 3 - Self.panelSize / 2,
-            y: frame.minY + frame.height / 2 - Self.panelSize / 2
+            y: frame.midY - panel.frame.height / 2
         ))
     }
 
